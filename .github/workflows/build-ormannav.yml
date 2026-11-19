@@ -248,6 +248,7 @@ jobs:
                           when {
                               fileName.endsWith(".kml") -> allSegments.addAll(KmlRoadParser.parse(stream))
                               fileName.endsWith(".shp") -> allSegments.addAll(ShpRoadParser.parse(stream, fileName))
+                              else -> Unit
                           }
                       }
                   }
@@ -1849,7 +1850,7 @@ jobs:
                   graphBuilder = GraphBuilder(this)
                   roadUpdateManager = RoadUpdateManager(this, graphBuilder)
                   offlineMapManager = OfflineMapManager(this)
-                  onlineMapManager = OnlineMapLayerManager(this)
+                  onlineMapManager = OnlineMapLayerManager(mapView)
                   orientationManager = MapOrientationManager(this, mapView)
                   hybridPlanner = HybridRoutePlanner(this, RouteCalculator())
                   voiceNavigator = VoiceNavigator(this)
