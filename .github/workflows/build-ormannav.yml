@@ -1,0 +1,2049 @@
+name: Build OrmanNav Release APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+env:
+  ADMIN_EMAIL: "cihantrkmen@gmail.com"
+  ADMIN_PASS: "Cihan2026!"
+  KEYSTORE_PASS: "OgmRelease2026!"
+  KEY_ALIAS: "ogm_key"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: JDK 17 Kurulumu
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Gradle 8.7 Kurulumu
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Proje Yapısı ve Gradle Dosyalarını Oluştur
+        run: |
+          mkdir -p app/src/main/java/com/ormannav/app/{model,io,graph,map,routing,nav,hazard,pro,security}
+          mkdir -p app/src/main/res/values
+
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "OrmanNav"
+          include(":app")
+          EOF
+
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+              id("org.jetbrains.kotlin.plugin.serialization") version "1.9.24" apply false
+          }
+          EOF
+
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.serialization")
+          }
+
+          android {
+              namespace = "com.ormannav.app"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.ormannav.app"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0.0"
+              }
+
+              signingConfigs {
+                  create("release") {
+                      storeFile = file("ogm-release.keystore")
+                      storePassword = System.getenv("KEYSTORE_PASS") ?: "OgmRelease2026!"
+                      keyAlias = System.getenv("KEY_ALIAS") ?: "ogm_key"
+                      keyPassword = System.getenv("KEYSTORE_PASS") ?: "OgmRelease2026!"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = true
+                      isShrinkResources = true
+                      signingConfig = signingConfigs.getByName("release")
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("com.google.android.material:material:1.12.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("org.osmdroid:osmdroid-android:6.1.18")
+          }
+          EOF
+
+          cat << 'EOF' > app/proguard-rules.pro
+          -repackageclasses 'o'
+          -optimizationpasses 5
+          -allowaccessmodification
+
+          -keep class com.ormannav.app.AuthActivity { *; }
+          -keep class com.ormannav.app.MainActivity { *; }
+
+          # Kotlinx Serialization koruma
+          -keepattributes *Annotation*, InnerClasses
+          -dontnote kotlinx.serialization.AnnotationsKt
+          -keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+          -keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
+          -keep,includedescriptorclasses class com.ormannav.app.model.**$$serializer { *; }
+          -keep,includedescriptorclasses class com.ormannav.app.graph.**$$serializer { *; }
+          -keep,includedescriptorclasses class com.ormannav.app.hazard.**$$serializer { *; }
+          -keepclassmembers class com.ormannav.app.model.** { *** Companion; }
+          -keepclassmembers class com.ormannav.app.graph.** { *** Companion; }
+          -keepclassmembers class com.ormannav.app.hazard.** { *** Companion; }
+
+          # OSMDroid koruma
+          -keep class org.osmdroid.** { *; }
+          -dontwarn org.osmdroid.**
+          EOF
+
+          cat << 'EOF' > app/src/main/res/values/styles.xml
+          <resources>
+              <style name="Theme.OrmanNav" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+                  <item name="colorPrimary">#1B5E20</item>
+                  <item name="colorPrimaryDark">#003300</item>
+                  <item name="colorAccent">#FF5722</item>
+              </style>
+          </resources>
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+              <application
+                  android:allowBackup="false"
+                  android:label="OrmanNav"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.OrmanNav">
+
+                  <activity
+                      android:name=".AuthActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="false" />
+              </application>
+          </manifest>
+          EOF
+
+      - name: 2048-bit RSA Keystore Üret (APK Mühürleme)
+        run: |
+          keytool -genkeypair -v \
+            -keystore app/ogm-release.keystore \
+            -storepass "$KEYSTORE_PASS" \
+            -keypass "$KEYSTORE_PASS" \
+            -alias "$KEY_ALIAS" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Cihan Turkmen, OU=OrmanNav, O=OGM, L=Denizli, S=Denizli, C=TR"
+
+      - name: Modül 1-6 (Modeller, KML/SHP Okuyucu, Yol Ağı, Çevrimdışı/Çevrimiçi Harita)
+        run: |
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/model/NavModels.kt
+          package com.ormannav.app.model
+
+          import kotlinx.serialization.Serializable
+
+          @Serializable
+          data class GeoPoint(val lat: Double, val lon: Double)
+
+          @Serializable
+          data class GraphNode(val id: Int, val lat: Double, val lon: Double)
+
+          @Serializable
+          data class GraphEdge(
+              val fromNodeId: Int,
+              val toNodeId: Int,
+              val distanceMeters: Double,
+              val roadName: String = "Orman Yolu"
+          )
+
+          @Serializable
+          data class NavigationGraph(
+              val nodes: MutableMap<Int, GraphNode> = mutableMapOf(),
+              val adjacencyList: MutableMap<Int, MutableList<GraphEdge>> = mutableMapOf()
+          )
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/io/BulkFileImporter.kt
+          package com.ormannav.app.io
+
+          import android.content.Context
+          import android.net.Uri
+          import android.provider.OpenableColumns
+          import com.ormannav.app.model.GeoPoint
+
+          data class RawRoadSegment(val name: String, val points: List<GeoPoint>)
+
+          class BulkFileImporter(private val context: Context) {
+              fun importFiles(uris: List<Uri>): List<RawRoadSegment> {
+                  val allSegments = mutableListOf<RawRoadSegment>()
+                  for (uri in uris) {
+                      val fileName = getFileName(uri).lowercase()
+                      context.contentResolver.openInputStream(uri)?.use { stream ->
+                          when {
+                              fileName.endsWith(".kml") -> allSegments.addAll(KmlRoadParser.parse(stream))
+                              fileName.endsWith(".shp") -> allSegments.addAll(ShpRoadParser.parse(stream, fileName))
+                          }
+                      }
+                  }
+                  return allSegments
+              }
+
+              private fun getFileName(uri: Uri): String {
+                  var name = "unknown"
+                  context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                      val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                      if (cursor.moveToFirst() && index >= 0) name = cursor.getString(index)
+                  }
+                  return name
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/io/RoadParsers.kt
+          package com.ormannav.app.io
+
+          import android.util.Xml
+          import com.ormannav.app.model.GeoPoint
+          import org.xmlpull.v1.XmlPullParser
+          import java.io.InputStream
+          import java.nio.ByteBuffer
+          import java.nio.ByteOrder
+
+          object KmlRoadParser {
+              fun parse(inputStream: InputStream): List<RawRoadSegment> {
+                  val segments = mutableListOf<RawRoadSegment>()
+                  val parser = Xml.newPullParser()
+                  parser.setInput(inputStream, "UTF-8")
+
+                  var eventType = parser.eventType
+                  var currentName = "Orman Yolu"
+                  var inLineString = false
+
+                  while (eventType != XmlPullParser.END_DOCUMENT) {
+                      when (eventType) {
+                          XmlPullParser.START_TAG -> {
+                              when (parser.name.lowercase()) {
+                                  "name" -> currentName = parser.nextText().trim()
+                                  "linestring" -> inLineString = true
+                                  "coordinates" -> if (inLineString) {
+                                      val coordsText = parser.nextText().trim()
+                                      val points = coordsText.split(Regex("\\s+")).mapNotNull { token ->
+                                          val parts = token.split(",")
+                                          if (parts.size >= 2) {
+                                              val lon = parts[0].toDoubleOrNull()
+                                              val lat = parts[1].toDoubleOrNull()
+                                              if (lat != null && lon != null) GeoPoint(lat, lon) else null
+                                          } else null
+                                      }
+                                      if (points.size >= 2) segments.add(RawRoadSegment(currentName, points))
+                                  }
+                              }
+                          }
+                          XmlPullParser.END_TAG -> {
+                              if (parser.name.lowercase() == "linestring") inLineString = false
+                          }
+                      }
+                      eventType = parser.next()
+                  }
+                  return segments
+              }
+          }
+
+          object ShpRoadParser {
+              fun parse(inputStream: InputStream, defaultName: String): List<RawRoadSegment> {
+                  val bytes = inputStream.readBytes()
+                  if (bytes.size < 100) return emptyList()
+
+                  val segments = mutableListOf<RawRoadSegment>()
+                  val buffer = ByteBuffer.wrap(bytes)
+                  var offset = 100
+
+                  while (offset + 8 <= bytes.size) {
+                      buffer.order(ByteOrder.BIG_ENDIAN)
+                      val contentLengthWords = buffer.getInt(offset + 4)
+                      val recordStart = offset + 8
+                      val contentLengthBytes = contentLengthWords * 2
+                      if (recordStart + contentLengthBytes > bytes.size) break
+
+                      buffer.order(ByteOrder.LITTLE_ENDIAN)
+                      val shapeType = buffer.getInt(recordStart)
+
+                      if (shapeType == 3 || shapeType == 13 || shapeType == 23) {
+                          val numParts = buffer.getInt(recordStart + 36)
+                          val numPoints = buffer.getInt(recordStart + 40)
+                          val partsStart = recordStart + 44
+                          val pointsStart = partsStart + (numParts * 4)
+                          val partIndices = IntArray(numParts) { i -> buffer.getInt(partsStart + i * 4) }
+
+                          for (p in 0 until numParts) {
+                              val startIdx = partIndices[p]
+                              val endIdx = if (p + 1 < numParts) partIndices[p + 1] else numPoints
+                              val pts = mutableListOf<GeoPoint>()
+                              for (i in startIdx until endIdx) {
+                                  val ptOffset = pointsStart + (i * 16)
+                                  val lon = buffer.getDouble(ptOffset)
+                                  val lat = buffer.getDouble(ptOffset + 8)
+                                  pts.add(GeoPoint(lat, lon))
+                              }
+                              if (pts.size >= 2) segments.add(RawRoadSegment(defaultName, pts))
+                          }
+                      }
+                      offset = recordStart + contentLengthBytes
+                  }
+                  return segments
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/graph/GraphBuilder.kt
+          package com.ormannav.app.graph
+
+          import android.content.Context
+          import com.ormannav.app.io.RawRoadSegment
+          import com.ormannav.app.model.*
+          import kotlinx.serialization.encodeToString
+          import kotlinx.serialization.json.Json
+          import java.io.File
+          import kotlin.math.*
+
+          class GraphBuilder(private val context: Context) {
+              private val snapToleranceMeters = 8.0
+              private val graphFile get() = File(context.filesDir, "forest_nav_graph.json")
+
+              fun loadExistingGraph(): NavigationGraph {
+                  return if (graphFile.exists()) {
+                      try { Json.decodeFromString(graphFile.readText()) } catch (_: Exception) { NavigationGraph() }
+                  } else NavigationGraph()
+              }
+
+              fun appendSegmentsToGraph(segments: List<RawRoadSegment>): NavigationGraph {
+                  val graph = loadExistingGraph()
+                  var nextNodeId = (graph.nodes.keys.maxOrNull() ?: 0) + 1
+
+                  fun findOrCreateNode(pt: GeoPoint): Int {
+                      for ((id, node) in graph.nodes) {
+                          if (haversineMeters(node.lat, node.lon, pt.lat, pt.lon) <= snapToleranceMeters) {
+                              return id
+                          }
+                      }
+                      val newId = nextNodeId++
+                      graph.nodes[newId] = GraphNode(newId, pt.lat, pt.lon)
+                      return newId
+                  }
+
+                  for (segment in segments) {
+                      for (i in 0 until segment.points.size - 1) {
+                          val n1 = findOrCreateNode(segment.points[i])
+                          val n2 = findOrCreateNode(segment.points[i + 1])
+                          if (n1 == n2) continue
+
+                          val dist = haversineMeters(
+                              segment.points[i].lat, segment.points[i].lon,
+                              segment.points[i + 1].lat, segment.points[i + 1].lon
+                          )
+                          graph.adjacencyList.getOrPut(n1) { mutableListOf() }.add(GraphEdge(n1, n2, dist, segment.name))
+                          graph.adjacencyList.getOrPut(n2) { mutableListOf() }.add(GraphEdge(n2, n1, dist, segment.name))
+                      }
+                  }
+                  graphFile.writeText(Json.encodeToString(graph))
+                  return graph
+              }
+
+              private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+                  val r = 6371000.0
+                  val dLat = Math.toRadians(lat2 - lat1)
+                  val dLon = Math.toRadians(lon2 - lon1)
+                  val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+                  return 2 * r * asin(sqrt(a))
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/graph/RoadUpdateManager.kt
+          package com.ormannav.app.graph
+
+          import android.content.Context
+          import android.graphics.Color
+          import android.net.Uri
+          import com.ormannav.app.io.BulkFileImporter
+          import com.ormannav.app.model.NavigationGraph
+          import kotlinx.serialization.Serializable
+          import kotlinx.serialization.encodeToString
+          import kotlinx.serialization.json.Json
+          import org.osmdroid.util.GeoPoint as OsmGeoPoint
+          import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.Polyline
+          import java.io.File
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          @Serializable
+          data class RoadUpdateLog(val fileCount: Int, val addedSegments: Int, val timestamp: String)
+
+          class RoadUpdateManager(
+              private val context: Context,
+              private val graphBuilder: GraphBuilder
+          ) {
+              private val importer = BulkFileImporter(context)
+              private val logFile get() = File(context.filesDir, "road_updates_log.json")
+              private val roadOverlays = mutableListOf<Polyline>()
+
+              fun addOrUpdateRoads(uris: List<Uri>): Pair<NavigationGraph, Int> {
+                  val rawSegments = importer.importFiles(uris)
+                  val updatedGraph = graphBuilder.appendSegmentsToGraph(rawSegments)
+                  for ((nodeId, edges) in updatedGraph.adjacencyList) {
+                      updatedGraph.adjacencyList[nodeId] = edges.distinctBy { it.toNodeId }.toMutableList()
+                  }
+                  saveUpdateLog(uris.size, rawSegments.size)
+                  return updatedGraph to rawSegments.size
+              }
+
+              fun renderRoadNetworkOnMap(mapView: MapView, graph: NavigationGraph) {
+                  roadOverlays.forEach { mapView.overlays.remove(it) }
+                  roadOverlays.clear()
+                  val drawnPairs = mutableSetOf<Pair<Int, Int>>()
+
+                  for ((fromId, edges) in graph.adjacencyList) {
+                      val fromNode = graph.nodes[fromId] ?: continue
+                      for (edge in edges) {
+                          val pair = minOf(fromId, edge.toNodeId) to maxOf(fromId, edge.toNodeId)
+                          if (!drawnPairs.add(pair)) continue
+                          val toNode = graph.nodes[edge.toNodeId] ?: continue
+                          val line = Polyline(mapView).apply {
+                              setPoints(listOf(OsmGeoPoint(fromNode.lat, fromNode.lon), OsmGeoPoint(toNode.lat, toNode.lon)))
+                              outlinePaint.color = Color.parseColor("#2196F3")
+                              outlinePaint.strokeWidth = 4f
+                          }
+                          roadOverlays.add(line)
+                          mapView.overlays.add(line)
+                      }
+                  }
+                  mapView.invalidate()
+              }
+
+              private fun saveUpdateLog(fileCount: Int, addedSegments: Int) {
+                  val history = if (logFile.exists()) {
+                      try { Json.decodeFromString<List<RoadUpdateLog>>(logFile.readText()).toMutableList() }
+                      catch (_: Exception) { mutableListOf() }
+                  } else mutableListOf()
+                  val now = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date())
+                  history.add(RoadUpdateLog(fileCount, addedSegments, now))
+                  logFile.writeText(Json.encodeToString(history))
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/map/OfflineTileArchive.kt
+          package com.ormannav.app.map
+
+          import android.database.sqlite.SQLiteDatabase
+          import org.osmdroid.tileprovider.modules.IArchiveFile
+          import org.osmdroid.tileprovider.tilesource.ITileSource
+          import org.osmdroid.util.MapTileIndex
+          import java.io.ByteArrayInputStream
+          import java.io.File
+          import java.io.InputStream
+
+          enum class OfflineMapFormat { MBTILES, GEOPACKAGE, SQLITEDB, UNKNOWN }
+
+          class OfflineTileArchive : IArchiveFile {
+              private var db: SQLiteDatabase? = null
+              private var format: OfflineMapFormat = OfflineMapFormat.UNKNOWN
+              private var gpkgTileTable: String? = null
+              private var isInvertedZoomSqlitedb: Boolean = true
+
+              override fun init(pFile: File) {
+                  db = SQLiteDatabase.openDatabase(
+                      pFile.absolutePath, null,
+                      SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
+                  )
+                  format = when (pFile.extension.lowercase()) {
+                      "mbtiles" -> OfflineMapFormat.MBTILES
+                      "gpkg" -> OfflineMapFormat.GEOPACKAGE
+                      "sqlitedb", "db" -> OfflineMapFormat.SQLITEDB
+                      else -> OfflineMapFormat.UNKNOWN
+                  }
+                  if (format == OfflineMapFormat.GEOPACKAGE) {
+                      val c = db?.rawQuery("SELECT table_name FROM gpkg_contents WHERE data_type = 'tiles' LIMIT 1", null)
+                      gpkgTileTable = c?.use { if (it.moveToFirst()) it.getString(0) else null }
+                  } else if (format == OfflineMapFormat.SQLITEDB) {
+                      val c = db?.rawQuery("SELECT MIN(z) FROM tiles", null)
+                      isInvertedZoomSqlitedb = c?.use { if (it.moveToFirst()) it.getInt(0) <= 5 else true } ?: true
+                  }
+              }
+
+              override fun getInputStream(pTileSource: ITileSource?, pMapTileIndex: Long): InputStream? {
+                  val database = db ?: return null
+                  val z = MapTileIndex.getZoom(pMapTileIndex)
+                  val x = MapTileIndex.getX(pMapTileIndex)
+                  val y = MapTileIndex.getY(pMapTileIndex)
+
+                  val (query, args) = when (format) {
+                      OfflineMapFormat.MBTILES -> {
+                          val tmsY = (1 shl z) - 1 - y
+                          "SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?" to
+                              arrayOf(z.toString(), x.toString(), tmsY.toString())
+                      }
+                      OfflineMapFormat.GEOPACKAGE -> {
+                          val table = gpkgTileTable ?: return null
+                          "SELECT tile_data FROM \"$table\" WHERE zoom_level=? AND tile_column=? AND tile_row=?" to
+                              arrayOf(z.toString(), x.toString(), y.toString())
+                      }
+                      OfflineMapFormat.SQLITEDB -> {
+                          val dbZ = if (isInvertedZoomSqlitedb) 17 - z else z
+                          "SELECT image FROM tiles WHERE z=? AND x=? AND y=?" to
+                              arrayOf(dbZ.toString(), x.toString(), y.toString())
+                      }
+                      OfflineMapFormat.UNKNOWN -> return null
+                  }
+                  return try {
+                      database.rawQuery(query, args).use { c ->
+                          if (c.moveToFirst()) c.getBlob(0)?.let { ByteArrayInputStream(it) } else null
+                      }
+                  } catch (_: Exception) { null }
+              }
+
+              override fun getTileSources(): Set<String> = setOf("OfflineForestMap")
+              override fun close() { db?.close(); db = null }
+              override fun setIgnoreTileSource(pIgnoreTileSource: Boolean) {}
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/map/OfflineMapManager.kt
+          package com.ormannav.app.map
+
+          import android.content.Context
+          import android.net.Uri
+          import org.osmdroid.tileprovider.MapTileProviderArray
+          import org.osmdroid.tileprovider.modules.MapTileFileArchiveProvider
+          import org.osmdroid.tileprovider.tilesource.XYTileSource
+          import org.osmdroid.tileprovider.util.SimpleRegisterReceiver
+          import org.osmdroid.views.MapView
+          import java.io.File
+          import java.io.FileOutputStream
+
+          class OfflineMapManager(private val context: Context) {
+              fun loadOfflineMap(mapView: MapView, fileUri: Uri, fileName: String) {
+                  val dir = context.getExternalFilesDir("offline_maps") ?: context.filesDir
+                  if (!dir.exists()) dir.mkdirs()
+                  val targetFile = File(dir, fileName)
+                  if (!targetFile.exists()) {
+                      context.contentResolver.openInputStream(fileUri)?.use { input ->
+                          FileOutputStream(targetFile).use { output -> input.copyTo(output) }
+                      }
+                  }
+                  val archive = OfflineTileArchive().apply { init(targetFile) }
+                  val tileSource = XYTileSource("OfflineForestMap", 1, 20, 256, ".png", arrayOf(""))
+                  val archiveProvider = MapTileFileArchiveProvider(SimpleRegisterReceiver(context), tileSource, arrayOf(archive))
+                  val tileProvider = MapTileProviderArray(tileSource, SimpleRegisterReceiver(context), arrayOf(archiveProvider))
+                  mapView.apply {
+                      setUseDataConnection(false)
+                      setTileProvider(tileProvider)
+                      invalidate()
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/map/OnlineMapLayerManager.kt
+          package com.ormannav.app.map
+
+          import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+          import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+          import org.osmdroid.util.MapTileIndex
+          import org.osmdroid.views.MapView
+
+          enum class OnlineMapLayer(val displayName: String) {
+              GOOGLE_HYBRID("Google Hibrit (Uydu + Yol)"),
+              GOOGLE_ROADS("Google Yol Haritası"),
+              OSM_STANDARD("OpenStreetMap"),
+              OPEN_TOPO("OpenTopoMap (Arazi)")
+          }
+
+          class OnlineMapLayerManager(private val mapView: MapView) {
+              private val googleHybridSource = object : OnlineTileSourceBase(
+                  "Google-Hybrid", 0, 20, 256, ".png",
+                  arrayOf("https://mt0.google.com/vt/lyrs=y&hl=tr&x=", "https://mt1.google.com/vt/lyrs=y&hl=tr&x=")
+              ) {
+                  override fun getTileURLString(pMapTileIndex: Long): String =
+                      baseUrl + MapTileIndex.getX(pMapTileIndex) + "&y=" + MapTileIndex.getY(pMapTileIndex) + "&z=" + MapTileIndex.getZoom(pMapTileIndex)
+              }
+
+              private val googleRoadsSource = object : OnlineTileSourceBase(
+                  "Google-Roads", 0, 20, 256, ".png",
+                  arrayOf("https://mt0.google.com/vt/lyrs=m&hl=tr&x=", "https://mt1.google.com/vt/lyrs=m&hl=tr&x=")
+              ) {
+                  override fun getTileURLString(pMapTileIndex: Long): String =
+                      baseUrl + MapTileIndex.getX(pMapTileIndex) + "&y=" + MapTileIndex.getY(pMapTileIndex) + "&z=" + MapTileIndex.getZoom(pMapTileIndex)
+              }
+
+              private val openTopoSource = object : OnlineTileSourceBase(
+                  "OpenTopoMap", 0, 17, 256, ".png",
+                  arrayOf("https://a.tile.opentopomap.org/", "https://b.tile.opentopomap.org/")
+              ) {
+                  override fun getTileURLString(pMapTileIndex: Long): String =
+                      baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + ".png"
+              }
+
+              fun switchLayer(layer: OnlineMapLayer) {
+                  mapView.setUseDataConnection(true)
+                  val source = when (layer) {
+                      OnlineMapLayer.GOOGLE_HYBRID -> googleHybridSource
+                      OnlineMapLayer.GOOGLE_ROADS -> googleRoadsSource
+                      OnlineMapLayer.OSM_STANDARD -> TileSourceFactory.MAPNIK
+                      OnlineMapLayer.OPEN_TOPO -> openTopoSource
+                  }
+                  mapView.setTileSource(source)
+                  mapView.invalidate()
+              }
+          }
+          EOF
+
+      - name: Modül 7-11 (Hibrit Rota, GPS, Sesli Yönlendirme, Pusula, Uyarılar, İz Kaydı)
+        run: |
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/routing/RouteCalculator.kt
+          package com.ormannav.app.routing
+
+          import com.ormannav.app.model.GeoPoint
+          import com.ormannav.app.model.GraphNode
+          import com.ormannav.app.model.NavigationGraph
+          import java.util.PriorityQueue
+          import kotlin.math.*
+
+          data class RouteResult(
+              val pathPoints: List<GeoPoint>,
+              val totalDistanceMeters: Double,
+              val offRoadStartMeters: Double,
+              val offRoadEndMeters: Double
+          )
+
+          class RouteCalculator {
+              fun calculateShortestPath(graph: NavigationGraph, startPoint: GeoPoint, targetPoint: GeoPoint): RouteResult? {
+                  if (graph.nodes.isEmpty()) return null
+                  val (startNode, startSnapDist) = findNearestNode(graph, startPoint) ?: return null
+                  val (endNode, endSnapDist) = findNearestNode(graph, targetPoint) ?: return null
+
+                  val gScore = mutableMapOf<Int, Double>().withDefault { Double.POSITIVE_INFINITY }
+                  val fScore = mutableMapOf<Int, Double>().withDefault { Double.POSITIVE_INFINITY }
+                  val cameFrom = mutableMapOf<Int, Int>()
+
+                  gScore[startNode.id] = 0.0
+                  fScore[startNode.id] = haversineMeters(startNode.lat, startNode.lon, endNode.lat, endNode.lon)
+
+                  val openSet = PriorityQueue<Pair<Int, Double>>(compareBy { it.second })
+                  openSet.add(startNode.id to fScore.getValue(startNode.id))
+                  val closedSet = mutableSetOf<Int>()
+
+                  while (openSet.isNotEmpty()) {
+                      val (currentId, _) = openSet.poll() ?: break
+                      if (currentId == endNode.id) {
+                          val path = mutableListOf<GeoPoint>()
+                          var curr: Int? = currentId
+                          while (curr != null) {
+                              graph.nodes[curr]?.let { path.add(GeoPoint(it.lat, it.lon)) }
+                              curr = cameFrom[curr]
+                          }
+                          path.reverse()
+                          return RouteResult(path, gScore.getValue(currentId), startSnapDist, endSnapDist)
+                      }
+                      if (!closedSet.add(currentId)) continue
+                      for (edge in graph.adjacencyList[currentId] ?: continue) {
+                          if (edge.toNodeId in closedSet) continue
+                          val tentativeG = gScore.getValue(currentId) + edge.distanceMeters
+                          if (tentativeG < gScore.getValue(edge.toNodeId)) {
+                              cameFrom[edge.toNodeId] = currentId
+                              gScore[edge.toNodeId] = tentativeG
+                              val neighbor = graph.nodes[edge.toNodeId] ?: continue
+                              val f = tentativeG + haversineMeters(neighbor.lat, neighbor.lon, endNode.lat, endNode.lon)
+                              fScore[edge.toNodeId] = f
+                              openSet.add(edge.toNodeId to f)
+                          }
+                      }
+                  }
+                  return null
+              }
+
+              private fun findNearestNode(graph: NavigationGraph, target: GeoPoint): Pair<GraphNode, Double>? {
+                  var nearest: GraphNode? = null
+                  var minDist = Double.POSITIVE_INFINITY
+                  for (node in graph.nodes.values) {
+                      val d = haversineMeters(node.lat, node.lon, target.lat, target.lon)
+                      if (d < minDist) { minDist = d; nearest = node }
+                  }
+                  return nearest?.let { it to minDist }
+              }
+
+              private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+                  val r = 6371000.0
+                  val dLat = Math.toRadians(lat2 - lat1)
+                  val dLon = Math.toRadians(lon2 - lon1)
+                  val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+                  return 2 * r * asin(sqrt(a))
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/routing/HybridRoutePlanner.kt
+          package com.ormannav.app.routing
+
+          import android.content.Context
+          import android.net.ConnectivityManager
+          import android.net.NetworkCapabilities
+          import com.ormannav.app.model.GeoPoint
+          import com.ormannav.app.model.GraphNode
+          import com.ormannav.app.model.NavigationGraph
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import org.json.JSONObject
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.util.ArrayDeque
+          import kotlin.math.*
+
+          class HybridRoutePlanner(
+              private val context: Context,
+              private val localCalculator: RouteCalculator
+          ) {
+              private val graphThresholdMeters = 150.0
+
+              suspend fun planRoute(graph: NavigationGraph, start: GeoPoint, target: GeoPoint): RouteResult? =
+                  withContext(Dispatchers.IO) {
+                      if (!isInternetAvailable()) {
+                          return@withContext localCalculator.calculateShortestPath(graph, start, target)
+                      }
+                      if (graph.nodes.isEmpty()) return@withContext fetchOsrmRoute(start, target)
+
+                      val startNearest = findNearestNode(graph, start)
+                      val targetNearest = findNearestNode(graph, target)
+                      val startInForest = startNearest != null && startNearest.second <= graphThresholdMeters
+                      val targetInForest = targetNearest != null && targetNearest.second <= graphThresholdMeters
+
+                      when {
+                          startInForest && targetInForest -> {
+                              localCalculator.calculateShortestPath(graph, start, target) ?: run {
+                                  val exitNode = findBestBridgeNode(graph, startNearest!!.first.id, target)
+                                  val entryNode = findBestBridgeNode(graph, targetNearest!!.first.id, start)
+                                  val l1 = localCalculator.calculateShortestPath(graph, start, GeoPoint(exitNode.lat, exitNode.lon))
+                                  val l2 = fetchOsrmRoute(GeoPoint(exitNode.lat, exitNode.lon), GeoPoint(entryNode.lat, entryNode.lon))
+                                  val l3 = localCalculator.calculateShortestPath(graph, GeoPoint(entryNode.lat, entryNode.lon), target)
+                                  if (l1 != null && l2 != null && l3 != null) combineRoutes(combineRoutes(l1, l2), l3)
+                                  else fetchOsrmRoute(start, target)
+                              }
+                          }
+                          !startInForest && targetInForest -> {
+                              val entryNode = findBestBridgeNode(graph, targetNearest!!.first.id, start)
+                              val entryPt = GeoPoint(entryNode.lat, entryNode.lon)
+                              val onlineLeg = fetchOsrmRoute(start, entryPt)
+                              val forestLeg = localCalculator.calculateShortestPath(graph, entryPt, target)
+                              if (onlineLeg != null && forestLeg != null) combineRoutes(onlineLeg, forestLeg)
+                              else fetchOsrmRoute(start, target) ?: forestLeg
+                          }
+                          startInForest && !targetInForest -> {
+                              val exitNode = findBestBridgeNode(graph, startNearest!!.first.id, target)
+                              val exitPt = GeoPoint(exitNode.lat, exitNode.lon)
+                              val forestLeg = localCalculator.calculateShortestPath(graph, start, exitPt)
+                              val onlineLeg = fetchOsrmRoute(exitPt, target)
+                              if (forestLeg != null && onlineLeg != null) combineRoutes(forestLeg, onlineLeg)
+                              else fetchOsrmRoute(start, target) ?: forestLeg
+                          }
+                          else -> fetchOsrmRoute(start, target)
+                      }
+                  }
+
+              private fun findBestBridgeNode(graph: NavigationGraph, seedId: Int, ref: GeoPoint): GraphNode {
+                  val visited = mutableSetOf(seedId)
+                  val queue = ArrayDeque<Int>().apply { add(seedId) }
+                  var best = graph.nodes[seedId]!!
+                  var minDist = haversineMeters(best.lat, best.lon, ref.lat, ref.lon)
+                  while (queue.isNotEmpty()) {
+                      val cid = queue.poll() ?: break
+                      val n = graph.nodes[cid] ?: continue
+                      val d = haversineMeters(n.lat, n.lon, ref.lat, ref.lon)
+                      if (d < minDist) { minDist = d; best = n }
+                      graph.adjacencyList[cid]?.forEach { if (visited.add(it.toNodeId)) queue.add(it.toNodeId) }
+                  }
+                  return best
+              }
+
+              private fun combineRoutes(first: RouteResult, second: RouteResult): RouteResult {
+                  val pts = mutableListOf<GeoPoint>().apply {
+                      addAll(first.pathPoints)
+                      if (second.pathPoints.isNotEmpty()) addAll(second.pathPoints.drop(1))
+                  }
+                  return RouteResult(pts, first.totalDistanceMeters + second.totalDistanceMeters, first.offRoadStartMeters, second.offRoadEndMeters)
+              }
+
+              private fun fetchOsrmRoute(from: GeoPoint, to: GeoPoint): RouteResult? {
+                  val urlStr = "https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson"
+                  return try {
+                      val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                          connectTimeout = 8000; readTimeout = 8000; setRequestProperty("User-Agent", "OrmanNav/1.0")
+                      }
+                      if (conn.responseCode != 200) return null
+                      val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                      val routes = json.getJSONArray("routes")
+                      if (routes.length() == 0) return null
+                      val rObj = routes.getJSONObject(0)
+                      val coords = rObj.getJSONObject("geometry").getJSONArray("coordinates")
+                      val pts = (0 until coords.length()).map { i ->
+                          val c = coords.getJSONArray(i); GeoPoint(c.getDouble(1), c.getDouble(0))
+                      }
+                      if (pts.size < 2) null else RouteResult(pts, rObj.getDouble("distance"), 0.0, 0.0)
+                  } catch (_: Exception) { null }
+              }
+
+              private fun isInternetAvailable(): Boolean {
+                  val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                  val caps = cm.getNetworkCapabilities(cm.activeNetwork ?: return false) ?: return false
+                  return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+              }
+
+              private fun findNearestNode(graph: NavigationGraph, target: GeoPoint): Pair<GraphNode, Double>? {
+                  var nearest: GraphNode? = null; var minDist = Double.POSITIVE_INFINITY
+                  for (node in graph.nodes.values) {
+                      val d = haversineMeters(node.lat, node.lon, target.lat, target.lon)
+                      if (d < minDist) { minDist = d; nearest = node }
+                  }
+                  return nearest?.let { it to minDist }
+              }
+
+              private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+                  val r = 6371000.0
+                  val dLat = Math.toRadians(lat2 - lat1); val dLon = Math.toRadians(lon2 - lon1)
+                  val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+                  return 2 * r * asin(sqrt(a))
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/map/RouteOverlayManager.kt
+          package com.ormannav.app.map
+
+          import android.graphics.Color
+          import com.ormannav.app.model.GeoPoint
+          import com.ormannav.app.routing.RouteResult
+          import org.osmdroid.events.MapEventsReceiver
+          import org.osmdroid.util.GeoPoint as OsmGeoPoint
+          import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.MapEventsOverlay
+          import org.osmdroid.views.overlay.Marker
+          import org.osmdroid.views.overlay.Polyline
+
+          class RouteOverlayManager(
+              private val mapView: MapView,
+              private val onDestinationSelected: (GeoPoint) -> Unit
+          ) {
+              private var routeLine: Polyline? = null
+              private var destinationMarker: Marker? = null
+
+              fun attachTapListener() {
+                  val receiver = object : MapEventsReceiver {
+                      override fun singleTapConfirmedHelper(p: OsmGeoPoint): Boolean = false
+                      override fun longPressHelper(p: OsmGeoPoint): Boolean {
+                          setDestinationMarker(p)
+                          onDestinationSelected(GeoPoint(p.latitude, p.longitude))
+                          return true
+                      }
+                  }
+                  mapView.overlays.add(0, MapEventsOverlay(receiver))
+              }
+
+              private fun setDestinationMarker(point: OsmGeoPoint) {
+                  destinationMarker?.let { mapView.overlays.remove(it) }
+                  destinationMarker = Marker(mapView).apply {
+                      position = point
+                      setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                      title = "Hedef Nokta"
+                  }
+                  mapView.overlays.add(destinationMarker)
+                  mapView.invalidate()
+              }
+
+              fun drawRoute(result: RouteResult) {
+                  routeLine?.let { mapView.overlays.remove(it) }
+                  routeLine = Polyline(mapView).apply {
+                      setPoints(result.pathPoints.map { OsmGeoPoint(it.lat, it.lon) })
+                      outlinePaint.color = Color.parseColor("#FF5722")
+                      outlinePaint.strokeWidth = 10f
+                  }
+                  mapView.overlays.add(routeLine)
+                  mapView.invalidate()
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/map/MapOrientationManager.kt
+          package com.ormannav.app.map
+
+          import android.content.Context
+          import android.hardware.Sensor
+          import android.hardware.SensorEvent
+          import android.hardware.SensorEventListener
+          import android.hardware.SensorManager
+          import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.compass.CompassOverlay
+          import org.osmdroid.views.overlay.compass.InternalCompassOrientationProvider
+
+          enum class MapOrientationMode(val label: String) {
+              COURSE_UP("Gidiş Yönü"),
+              COMPASS_UP("Pusula Yönü"),
+              NORTH_UP("Kuzey Sabit")
+          }
+
+          class MapOrientationManager(context: Context, private val mapView: MapView) : SensorEventListener {
+              private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+              private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+              var mode: MapOrientationMode = MapOrientationMode.COURSE_UP
+                  private set
+              private var currentCompassAzimuth = 0f
+              private var lastAppliedAngle = 0f
+              private var isMovingFast = false
+
+              init {
+                  val compassOverlay = CompassOverlay(context, InternalCompassOrientationProvider(context), mapView).apply {
+                      enableCompass()
+                  }
+                  mapView.overlays.add(compassOverlay)
+              }
+
+              fun start() { rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) } }
+              fun stop() { sensorManager.unregisterListener(this) }
+
+              fun cycleMode(): MapOrientationMode {
+                  mode = when (mode) {
+                      MapOrientationMode.COURSE_UP -> MapOrientationMode.COMPASS_UP
+                      MapOrientationMode.COMPASS_UP -> MapOrientationMode.NORTH_UP
+                      MapOrientationMode.NORTH_UP -> MapOrientationMode.COURSE_UP
+                  }
+                  if (mode == MapOrientationMode.NORTH_UP) applyMapAngle(0f)
+                  return mode
+              }
+
+              fun onGpsUpdate(bearing: Float, speedMetersPerSec: Float) {
+                  isMovingFast = speedMetersPerSec > 1.0f
+                  if (mode == MapOrientationMode.COURSE_UP && isMovingFast && bearing != 0f) applyMapAngle(-bearing)
+              }
+
+              override fun onSensorChanged(event: SensorEvent) {
+                  if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+                  val rot = FloatArray(9); val ori = FloatArray(3)
+                  SensorManager.getRotationMatrixFromVector(rot, event.values)
+                  SensorManager.getOrientation(rot, ori)
+                  val raw = (Math.toDegrees(ori[0].toDouble()).toFloat() + 360f) % 360f
+                  currentCompassAzimuth = smoothAngle(currentCompassAzimuth, raw, 0.15f)
+                  if (mode == MapOrientationMode.COMPASS_UP || (mode == MapOrientationMode.COURSE_UP && !isMovingFast)) {
+                      applyMapAngle(-currentCompassAzimuth)
+                  }
+              }
+
+              private fun applyMapAngle(angle: Float) {
+                  if (kotlin.math.abs(angle - lastAppliedAngle) > 1.5f || angle == 0f) {
+                      mapView.mapOrientation = angle
+                      lastAppliedAngle = angle
+                  }
+              }
+
+              private fun smoothAngle(cur: Float, tgt: Float, alpha: Float): Float {
+                  var d = tgt - cur
+                  while (d < -180f) d += 360f
+                  while (d > 180f) d -= 360f
+                  return (cur + alpha * d + 360f) % 360f
+              }
+
+              override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/nav/LiveGpsTracker.kt
+          package com.ormannav.app.nav
+
+          import android.annotation.SuppressLint
+          import android.content.Context
+          import android.location.Location
+          import android.location.LocationListener
+          import android.location.LocationManager
+          import android.os.Bundle
+
+          class LiveGpsTracker(
+              context: Context,
+              private val onLocationUpdate: (Location) -> Unit
+          ) {
+              private val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+              private val listener = object : LocationListener {
+                  override fun onLocationChanged(location: Location) { onLocationUpdate(location) }
+                  @Deprecated("Deprecated in Java")
+                  override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                  override fun onProviderEnabled(provider: String) {}
+                  override fun onProviderDisabled(provider: String) {}
+              }
+
+              @SuppressLint("MissingPermission")
+              fun startTracking() {
+                  if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                      locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 3f, listener)
+                  }
+              }
+
+              fun stopTracking() { locationManager.removeUpdates(listener) }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/nav/VoiceNavigator.kt
+          package com.ormannav.app.nav
+
+          import android.content.Context
+          import android.speech.tts.TextToSpeech
+          import com.ormannav.app.model.GeoPoint
+          import java.util.Locale
+          import kotlin.math.*
+
+          class VoiceNavigator(context: Context) : TextToSpeech.OnInitListener {
+              private var tts: TextToSpeech? = TextToSpeech(context, this)
+              private var isReady = false
+              private var activeRoute: List<GeoPoint> = emptyList()
+              private var currentIdx = 0
+              private var lastAnnouncedIdx = -1
+              private var lastOffRouteTime = 0L
+
+              override fun onInit(status: Int) {
+                  if (status == TextToSpeech.SUCCESS) { tts?.language = Locale("tr", "TR"); isReady = true }
+              }
+
+              fun startNavigation(route: List<GeoPoint>) {
+                  activeRoute = route; currentIdx = 0; lastAnnouncedIdx = -1
+                  speak("Navigasyon başlatıldı. Rotayı takip edin.")
+              }
+
+              fun updatePosition(pos: GeoPoint) {
+                  if (activeRoute.size < 2 || currentIdx >= activeRoute.size) return
+                  if (haversine(pos, activeRoute.last()) < 20.0) {
+                      speak("Hedefe ulaştınız."); activeRoute = emptyList(); return
+                  }
+                  var closestDist = Double.POSITIVE_INFINITY; var closestIdx = currentIdx
+                  for (i in currentIdx until minOf(currentIdx + 10, activeRoute.size)) {
+                      val d = haversine(pos, activeRoute[i])
+                      if (d < closestDist) { closestDist = d; closestIdx = i }
+                  }
+                  currentIdx = closestIdx
+                  if (closestDist > 35.0) {
+                      val now = System.currentTimeMillis()
+                      if (now - lastOffRouteTime > 15000L) {
+                          speak("Rotadan çıktınız. Orman yoluna geri dönün.")
+                          lastOffRouteTime = now
+                      }
+                      return
+                  }
+                  val nextIdx = currentIdx + 1
+                  if (nextIdx + 1 < activeRoute.size && nextIdx != lastAnnouncedIdx && haversine(pos, activeRoute[nextIdx]) <= 50.0) {
+                      val b1 = bearing(activeRoute[currentIdx], activeRoute[nextIdx])
+                      val b2 = bearing(activeRoute[nextIdx], activeRoute[nextIdx + 1])
+                      var turn = (b2 - b1) % 360.0
+                      if (turn > 180.0) turn -= 360.0; if (turn < -180.0) turn += 360.0
+                      val msg = when {
+                          turn in 35.0..120.0 -> "50 metre sonra sağa dönün."
+                          turn > 120.0 -> "50 metre sonra keskin sağa dönün."
+                          turn in -120.0..-35.0 -> "50 metre sonra sola dönün."
+                          turn < -120.0 -> "50 metre sonra keskin sola dönün."
+                          else -> null
+                      }
+                      if (msg != null) { speak(msg); lastAnnouncedIdx = nextIdx }
+                  }
+              }
+
+              fun speak(text: String) { if (isReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nav") }
+              fun shutdown() { tts?.stop(); tts?.shutdown() }
+
+              private fun bearing(p1: GeoPoint, p2: GeoPoint): Double {
+                  val lat1 = Math.toRadians(p1.lat); val lat2 = Math.toRadians(p2.lat)
+                  val dLon = Math.toRadians(p2.lon - p1.lon)
+                  return (Math.toDegrees(atan2(sin(dLon) * cos(lat2), cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon))) + 360.0) % 360.0
+              }
+
+              private fun haversine(p1: GeoPoint, p2: GeoPoint): Double {
+                  val r = 6371000.0; val dLat = Math.toRadians(p2.lat - p1.lat); val dLon = Math.toRadians(p2.lon - p1.lon)
+                  val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(p1.lat)) * cos(Math.toRadians(p2.lat)) * sin(dLon / 2).pow(2)
+                  return 2 * r * asin(sqrt(a))
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/hazard/HazardModels.kt
+          package com.ormannav.app.hazard
+
+          import android.content.Context
+          import kotlinx.serialization.Serializable
+
+          @Serializable
+          enum class HazardType(val label: String) {
+              CLOSED("Yol Kapalı"),
+              DAMAGED("Yol Hasarlı / Bozuk")
+          }
+
+          @Serializable
+          data class RoadHazard(
+              val id: String, val lat: Double, val lon: Double,
+              val type: HazardType, val note: String, val regionCode: String,
+              val reportedBy: String, val isAuthorityReport: Boolean,
+              val timestamp: Long, val synced: Boolean = false
+          )
+
+          class RegionSettingsManager(context: Context) {
+              private val prefs = context.getSharedPreferences("orman_nav_settings", Context.MODE_PRIVATE)
+              var regionCode: String
+                  get() = prefs.getString("region_code", "GENEL") ?: "GENEL"
+                  set(v) = prefs.edit().putString("region_code", v.trim().uppercase()).apply()
+              var userName: String
+                  get() = prefs.getString("user_name", "Kullanıcı") ?: "Kullanıcı"
+                  set(v) = prefs.edit().putString("user_name", v.trim()).apply()
+              var isAuthorized: Boolean
+                  get() = prefs.getBoolean("is_authorized", false)
+                  set(v) = prefs.edit().putBoolean("is_authorized", v).apply()
+              var syncEndpointUrl: String
+                  get() = prefs.getString("sync_url", "") ?: ""
+                  set(v) = prefs.edit().putString("sync_url", v.trim()).apply()
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/hazard/HazardSyncManager.kt
+          package com.ormannav.app.hazard
+
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.content.Context
+          import android.net.ConnectivityManager
+          import android.net.Network
+          import android.net.NetworkCapabilities
+          import android.net.NetworkRequest
+          import android.os.Build
+          import androidx.core.app.NotificationCompat
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.serialization.encodeToString
+          import kotlinx.serialization.json.Json
+          import java.io.File
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.util.UUID
+
+          class HazardSyncManager(
+              private val context: Context,
+              private val settings: RegionSettingsManager,
+              private val onHazardsUpdated: (List<RoadHazard>) -> Unit
+          ) {
+              private val json = Json { ignoreUnknownKeys = true }
+              private val localFile get() = File(context.filesDir, "road_hazards.json")
+              private val channelId = "orman_road_alerts"
+              private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+              private val netCb = object : ConnectivityManager.NetworkCallback() {
+                  override fun onAvailable(network: Network) {
+                      CoroutineScope(Dispatchers.IO).launch { syncNow() }
+                  }
+              }
+
+              init {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val ch = NotificationChannel(channelId, "Yöre Yol Uyarıları", NotificationManager.IMPORTANCE_HIGH)
+                      (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
+                  }
+              }
+
+              fun startNetworkMonitoring() {
+                  cm.registerNetworkCallback(NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), netCb)
+              }
+
+              fun stopNetworkMonitoring() { try { cm.unregisterNetworkCallback(netCb) } catch (_: Exception) {} }
+
+              fun loadLocalHazards(): MutableList<RoadHazard> = if (localFile.exists()) {
+                  try { json.decodeFromString<List<RoadHazard>>(localFile.readText()).toMutableList() } catch (_: Exception) { mutableListOf() }
+              } else mutableListOf()
+
+              fun reportHazard(lat: Double, lon: Double, type: HazardType, note: String) {
+                  val list = loadLocalHazards()
+                  list.add(RoadHazard(UUID.randomUUID().toString(), lat, lon, type, note, settings.regionCode, settings.userName, settings.isAuthorized, System.currentTimeMillis(), false))
+                  localFile.writeText(json.encodeToString(list))
+                  onHazardsUpdated(list)
+                  CoroutineScope(Dispatchers.IO).launch { syncNow() }
+              }
+
+              suspend fun syncNow() {
+                  val endpoint = settings.syncEndpointUrl
+                  if (endpoint.isBlank()) return
+                  val list = loadLocalHazards()
+                  var changed = false
+                  for (i in list.indices) {
+                      if (!list[i].synced && postHazard(endpoint, list[i])) {
+                          list[i] = list[i].copy(synced = true); changed = true
+                      }
+                  }
+                  val existingIds = list.map { it.id }.toSet()
+                  for (remote in fetchRegionHazards(endpoint, settings.regionCode)) {
+                      if (remote.id !in existingIds) {
+                          list.add(remote.copy(synced = true)); changed = true
+                          showAlert(remote)
+                      }
+                  }
+                  if (changed) { localFile.writeText(json.encodeToString(list)); onHazardsUpdated(list) }
+              }
+
+              private fun postHazard(baseUrl: String, h: RoadHazard): Boolean = try {
+                  val c = (URL("$baseUrl/hazards").openConnection() as HttpURLConnection).apply {
+                      requestMethod = "POST"; doOutput = true; connectTimeout = 6000; readTimeout = 6000
+                      setRequestProperty("Content-Type", "application/json")
+                  }
+                  c.outputStream.use { it.write(json.encodeToString(h).toByteArray()) }
+                  c.responseCode in 200..299
+              } catch (_: Exception) { false }
+
+              private fun fetchRegionHazards(baseUrl: String, region: String): List<RoadHazard> = try {
+                  val c = (URL("$baseUrl/hazards?region=$region").openConnection() as HttpURLConnection).apply {
+                      connectTimeout = 6000; readTimeout = 6000
+                  }
+                  if (c.responseCode == 200) json.decodeFromString(c.inputStream.bufferedReader().use { it.readText() }) else emptyList()
+              } catch (_: Exception) { emptyList() }
+
+              private fun showAlert(h: RoadHazard) {
+                  val prefix = if (h.isAuthorityReport) "[YETKİLİ] " else ""
+                  val n = NotificationCompat.Builder(context, channelId)
+                      .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                      .setContentTitle("$prefix${h.regionCode}: ${h.type.label}")
+                      .setContentText("${h.note} (${h.reportedBy})")
+                      .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).build()
+                  (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(h.id.hashCode(), n)
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/hazard/HazardOverlayManager.kt
+          package com.ormannav.app.hazard
+
+          import org.osmdroid.util.GeoPoint as OsmGeoPoint
+          import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.Marker
+
+          class HazardOverlayManager(private val mapView: MapView) {
+              private val markers = mutableListOf<Marker>()
+              fun renderHazards(hazards: List<RoadHazard>) {
+                  markers.forEach { mapView.overlays.remove(it) }; markers.clear()
+                  for (h in hazards) {
+                      val m = Marker(mapView).apply {
+                          position = OsmGeoPoint(h.lat, h.lon)
+                          setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                          title = "${h.type.label}${if (h.isAuthorityReport) " [YETKİLİ]" else ""}"
+                          snippet = "${h.note}\nYöre: ${h.regionCode} | ${h.reportedBy}"
+                      }
+                      markers.add(m); mapView.overlays.add(m)
+                  }
+                  mapView.invalidate()
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/pro/TrackRecorder.kt
+          package com.ormannav.app.pro
+
+          import android.content.Context
+          import android.graphics.Color
+          import com.ormannav.app.model.GeoPoint
+          import com.ormannav.app.model.NavigationGraph
+          import org.osmdroid.util.GeoPoint as OsmGeoPoint
+          import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.Polyline
+          import java.io.File
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+          import kotlin.math.*
+
+          data class TrackExportResult(val kmlFile: File, val points: List<GeoPoint>)
+
+          object NewRoadDetector {
+              fun isNewRoadArea(trackPoints: List<GeoPoint>, graph: NavigationGraph): Boolean {
+                  if (trackPoints.size < 2) return false
+                  if (graph.nodes.isEmpty()) return true
+                  var offCount = 0
+                  for (pt in trackPoints) {
+                      val minDist = graph.nodes.values.minOfOrNull { n -> haversine(pt.lat, pt.lon, n.lat, n.lon) } ?: Double.POSITIVE_INFINITY
+                      if (minDist > 25.0) offCount++
+                  }
+                  return (offCount.toDouble() / trackPoints.size) >= 0.5
+              }
+
+              private fun haversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+                  val r = 6371000.0; val dLat = Math.toRadians(lat2 - lat1); val dLon = Math.toRadians(lon2 - lon1)
+                  val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+                  return 2 * r * asin(sqrt(a))
+              }
+          }
+
+          class TrackRecorder(private val context: Context, private val mapView: MapView) {
+              var isRecording: Boolean = false
+                  private set
+              private val recordedPoints = mutableListOf<GeoPoint>()
+              private var trackOverlay: Polyline? = null
+
+              fun startRecording() {
+                  recordedPoints.clear()
+                  trackOverlay?.let { mapView.overlays.remove(it) }
+                  trackOverlay = Polyline(mapView).apply {
+                      outlinePaint.color = Color.parseColor("#00E676")
+                      outlinePaint.strokeWidth = 8f
+                  }
+                  mapView.overlays.add(trackOverlay)
+                  isRecording = true
+              }
+
+              fun addPoint(point: GeoPoint) {
+                  if (!isRecording) return
+                  recordedPoints.add(point)
+                  trackOverlay?.addPoint(OsmGeoPoint(point.lat, point.lon))
+                  mapView.invalidate()
+              }
+
+              fun stopAndExportKml(): TrackExportResult? {
+                  isRecording = false
+                  if (recordedPoints.size < 2) return null
+                  val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                  val dir = context.getExternalFilesDir("recorded_tracks") ?: context.filesDir
+                  if (!dir.exists()) dir.mkdirs()
+                  val file = File(dir, "OrmanIz_$ts.kml")
+                  val coords = recordedPoints.joinToString(" ") { "${it.lon},${it.lat},0" }
+                  file.writeText("""<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Orman Iz $ts</name><Placemark><name>Yeni Orman Yolu</name><LineString><coordinates>$coords</coordinates></LineString></Placemark></Document></kml>""")
+                  return TrackExportResult(file, recordedPoints.toList())
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/pro/FieldUiManager.kt
+          package com.ormannav.app.pro
+
+          import android.app.Activity
+          import android.content.Context
+          import android.graphics.ColorMatrix
+          import android.graphics.ColorMatrixColorFilter
+          import android.location.Location
+          import android.view.WindowManager
+          import org.osmdroid.views.MapView
+          import java.util.Locale
+
+          class FieldUiManager(context: Context) {
+              private val prefs = context.getSharedPreferences("orman_nav_ui", Context.MODE_PRIVATE)
+              var keepScreenOn: Boolean
+                  get() = prefs.getBoolean("keep_screen_on", true)
+                  set(v) = prefs.edit().putBoolean("keep_screen_on", v).apply()
+              var nightModeMap: Boolean
+                  get() = prefs.getBoolean("night_mode_map", false)
+                  set(v) = prefs.edit().putBoolean("night_mode_map", v).apply()
+              var showCrosshair: Boolean
+                  get() = prefs.getBoolean("show_crosshair", true)
+                  set(v) = prefs.edit().putBoolean("show_crosshair", v).apply()
+
+              fun applyScreenSettings(activity: Activity) {
+                  if (keepScreenOn) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                  else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+              }
+
+              fun applyMapNightFilter(mapView: MapView) {
+                  if (nightModeMap) {
+                      val m = ColorMatrix(floatArrayOf(-0.75f,0f,0f,0f,200f, 0f,-0.75f,0f,0f,200f, 0f,0f,-0.75f,0f,200f, 0f,0f,0f,1f,0f))
+                      mapView.overlayManager.tilesOverlay.setColorFilter(ColorMatrixColorFilter(m))
+                  } else mapView.overlayManager.tilesOverlay.setColorFilter(null)
+                  mapView.invalidate()
+              }
+
+              fun formatTelemetryHud(location: Location?, remainingMeters: Double?): String {
+                  if (location == null) return "GPS Sinyali Bekleniyor..."
+                  val base = String.format(Locale.US, "%.5f, %.5f | Rakım: %dm | %.1f km/s | ±%dm",
+                      location.latitude, location.longitude, location.altitude.toInt(), location.speed * 3.6, location.accuracy.toInt())
+                  return if (remainingMeters != null) String.format(Locale.US, "%s | Hedef: %.2f km", base, remainingMeters / 1000.0) else base
+              }
+          }
+          EOF
+
+      - name: Modül 12 (Güvenlik, Şifreli Yönetici Değerleri, AuthActivity ve MainActivity)
+        run: |
+          python3 - << 'PYEOF'
+          import os, hashlib
+
+          salt1_obf = [70, 78, 68, 86, 59, 57, 59, 63, 86, 66, 72, 74, 86, 70, 65, 76, 75, 86, 56, 58]
+          salt1 = "".join(chr(x ^ 9) for x in salt1_obf)
+          admin_pass = os.environ["ADMIN_PASS"]
+          admin_email = os.environ["ADMIN_EMAIL"]
+
+          admin_pass_hash = hashlib.sha256((admin_pass + salt1).encode("utf-8")).hexdigest().upper()
+          admin_email_obf = ", ".join(str(ord(c) ^ 13) for c in admin_email)
+
+          code = f'''package com.ormannav.app.security
+
+          import android.annotation.SuppressLint
+          import android.content.Context
+          import android.provider.Settings
+          import android.util.Base64
+          import java.security.MessageDigest
+          import java.util.Locale
+
+          object SecurityManager {{
+              private const val VAULT_NAME = "ogm_sec_vault_v4"
+              private val SALT_1_OBF = intArrayOf(70, 78, 68, 86, 59, 57, 59, 63, 86, 66, 72, 74, 86, 70, 65, 76, 75, 86, 56, 58)
+              private val SALT_2_OBF = intArrayOf(68, 76, 70, 84, 71, 66, 72, 78, 69, 72, 84, 57, 59, 57, 61, 84, 83, 68, 69)
+              private const val ADMIN_PASS_HASH = "{admin_pass_hash}"
+              private val ADMIN_EMAIL_OBF = intArrayOf({admin_email_obf})
+
+              private fun getSalt1(): String = String(CharArray(SALT_1_OBF.size) {{ i -> (SALT_1_OBF[i] xor 9).toChar() }})
+              private fun getSalt2(): String = String(CharArray(SALT_2_OBF.size) {{ i -> (SALT_2_OBF[i] xor 11).toChar() }})
+              fun getAdminEmail(): String = String(CharArray(ADMIN_EMAIL_OBF.size) {{ i -> (ADMIN_EMAIL_OBF[i] xor 13).toChar() }})
+
+              private fun sha256Hex(input: String): String {{
+                  val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+                  return digest.joinToString("") {{ "%02X".format(it) }}
+              }}
+
+              private fun xorEncryptBase64(plain: String, key: String): String {{
+                  val p = plain.toByteArray(Charsets.UTF_8); val k = key.toByteArray(Charsets.UTF_8)
+                  val out = ByteArray(p.size) {{ i -> (p[i].toInt() xor k[i % k.size].toInt()).toByte() }}
+                  return Base64.encodeToString(out, Base64.NO_WRAP)
+              }}
+
+              private fun xorDecryptBase64(encoded: String, key: String): String = try {{
+                  val d = Base64.decode(encoded, Base64.NO_WRAP); val k = key.toByteArray(Charsets.UTF_8)
+                  String(ByteArray(d.size) {{ i -> (d[i].toInt() xor k[i % k.size].toInt()).toByte() }}, Charsets.UTF_8)
+              }} catch (_: Exception) {{ "" }}
+
+              @SuppressLint("HardwareIds")
+              fun getDeviceId(context: Context): String =
+                  Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN_DEV"
+
+              fun generateRequestCode(context: Context, user: String, full: String, duty: String, phone: String): String {{
+                  val raw = "${{user.trim().lowercase(Locale.US)}}|${{full.trim().lowercase(Locale.US)}}|${{duty.trim().lowercase(Locale.US)}}|${{phone.trim().lowercase(Locale.US)}}|${{getDeviceId(context).trim().lowercase(Locale.US)}}|${{getSalt1()}}"
+                  val hex = sha256Hex(raw)
+                  return "TALEP-${{hex.substring(0, 4)}}-${{hex.substring(4, 8)}}"
+              }}
+
+              fun generateLicenseFromRequestCode(requestCode: String): String {{
+                  val hex = sha256Hex("${{requestCode.trim().uppercase(Locale.US)}}|${{getSalt2()}}")
+                  return "OGM-${{hex.substring(0, 4)}}-${{hex.substring(4, 8)}}"
+              }}
+
+              fun registerUser(context: Context, user: String, full: String, duty: String, phone: String, pass: String): String {{
+                  val s1 = getSalt1()
+                  val req = generateRequestCode(context, user, full, duty, phone)
+                  val licHash = sha256Hex(generateLicenseFromRequestCode(req))
+                  context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE).edit()
+                      .putString("u_name", xorEncryptBase64(user.trim(), s1))
+                      .putString("u_full", xorEncryptBase64(full.trim(), s1))
+                      .putString("u_duty", xorEncryptBase64(duty.trim(), s1))
+                      .putString("u_phone", xorEncryptBase64(phone.trim(), s1))
+                      .putString("u_pass", sha256Hex(pass + s1))
+                      .putString("u_expected_lic", licHash)
+                      .putBoolean("u_activated", false).apply()
+                  return req
+              }}
+
+              fun verifyAndActivateLicense(context: Context, inputLicense: String): Boolean {{
+                  val prefs = context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE)
+                  val expected = prefs.getString("u_expected_lic", null) ?: return false
+                  if (sha256Hex(inputLicense.trim().uppercase(Locale.US)) == expected) {{
+                      prefs.edit().putBoolean("u_activated", true).apply()
+                      return true
+                  }}
+                  return false
+              }}
+
+              fun validateLogin(context: Context, inputUser: String, inputPass: String): Pair<Boolean, String> {{
+                  val prefs = context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE)
+                  val encUser = prefs.getString("u_name", null) ?: return false to "Kayıtlı kullanıcı bulunamadı."
+                  val savedPass = prefs.getString("u_pass", null) ?: return false to "Kasa verisi eksik."
+                  val s1 = getSalt1()
+                  if (!xorDecryptBase64(encUser, s1).equals(inputUser.trim(), ignoreCase = true)) return false to "Kullanıcı adı hatalı."
+                  if (sha256Hex(inputPass + s1) != savedPass) return false to "Şifre hatalı."
+                  if (!prefs.getBoolean("u_activated", false)) return false to "Hesabınız lisanslanmamış."
+                  return true to "Giriş başarılı."
+              }}
+
+              fun verifyAdminPassword(input: String): Boolean = sha256Hex(input + getSalt1()) == ADMIN_PASS_HASH
+
+              fun activateAdminDeviceDirectly(context: Context) {{
+                  val s1 = getSalt1()
+                  context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE).edit()
+                      .putString("u_name", xorEncryptBase64("admin", s1))
+                      .putString("u_full", xorEncryptBase64("Cihan Türkmen", s1))
+                      .putString("u_duty", xorEncryptBase64("Yönetici", s1))
+                      .putString("u_phone", xorEncryptBase64("-", s1))
+                      .putString("u_pass", ADMIN_PASS_HASH)
+                      .putBoolean("u_activated", true).apply()
+              }}
+
+              fun isActivated(context: Context): Boolean =
+                  context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE).getBoolean("u_activated", false)
+          }}
+          '''
+          with open("app/src/main/java/com/ormannav/app/security/SecurityManager.kt", "w", encoding="utf-8") as f:
+              f.write(code)
+          PYEOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/security/AdminPanelHelper.kt
+          package com.ormannav.app.security
+
+          import android.content.ClipData
+          import android.content.ClipboardManager
+          import android.content.Context
+          import android.content.Intent
+          import android.text.InputType
+          import android.widget.*
+          import androidx.appcompat.app.AlertDialog
+
+          object AdminPanelHelper {
+              fun openWithPasswordCheck(context: Context, showDirectActivateButton: Boolean, onDirectActivated: (() -> Unit)? = null) {
+                  val etPass = EditText(context).apply {
+                      hint = "Yönetici Şifresi"
+                      inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                  }
+                  AlertDialog.Builder(context)
+                      .setTitle("Gizli Yönetici Girişi")
+                      .setView(etPass)
+                      .setPositiveButton("Giriş") { _, _ ->
+                          if (SecurityManager.verifyAdminPassword(etPass.text.toString())) {
+                              showGeneratorDialog(context, showDirectActivateButton, onDirectActivated)
+                          } else Toast.makeText(context, "Yetkisiz şifre.", Toast.LENGTH_SHORT).show()
+                      }
+                      .setNegativeButton("İptal", null).show()
+              }
+
+              private fun showGeneratorDialog(context: Context, showDirectActivateButton: Boolean, onDirectActivated: (() -> Unit)?) {
+                  val layout = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 24, 40, 16) }
+                  val etReq = EditText(context).apply { hint = "TALEP-XXXX-XXXX" }
+                  val tvRes = TextView(context).apply { text = "Üretilen Kod: -"; textSize = 16f; setPadding(0, 16, 0, 16) }
+                  var lastCode = ""
+
+                  val btnGen = Button(context).apply {
+                      text = "Lisans Kodu Üret"
+                      setOnClickListener {
+                          val r = etReq.text.toString().trim()
+                          if (r.isNotEmpty()) { lastCode = SecurityManager.generateLicenseFromRequestCode(r); tvRes.text = "Üretilen Kod: $lastCode" }
+                      }
+                  }
+                  val btnCopy = Button(context).apply {
+                      text = "Kopyala"
+                      setOnClickListener {
+                          if (lastCode.isNotEmpty()) {
+                              (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("OGM", lastCode))
+                              Toast.makeText(context, "Kopyalandı: $lastCode", Toast.LENGTH_SHORT).show()
+                          }
+                      }
+                  }
+                  val btnShare = Button(context).apply {
+                      text = "Paylaş (WhatsApp / SMS / Mail)"
+                      setOnClickListener {
+                          if (lastCode.isNotEmpty()) {
+                              val i = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "OrmanNav Lisans Kodunuz: $lastCode") }
+                              context.startActivity(Intent.createChooser(i, "Lisans Paylaş"))
+                          }
+                      }
+                  }
+                  listOf(etReq, btnGen, tvRes, btnCopy, btnShare).forEach { layout.addView(it) }
+                  if (showDirectActivateButton) {
+                      layout.addView(Button(context).apply {
+                          text = "Bu Cihazı Yönetici Olarak Aktifleştir"
+                          setOnClickListener { SecurityManager.activateAdminDeviceDirectly(context); onDirectActivated?.invoke() }
+                      })
+                  }
+                  AlertDialog.Builder(context).setTitle("Yönetici Lisans Üretici").setView(layout).setNegativeButton("Kapat", null).show()
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/AuthActivity.kt
+          package com.ormannav.app
+
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.text.InputType
+          import android.view.Gravity
+          import android.widget.*
+          import androidx.appcompat.app.AlertDialog
+          import androidx.appcompat.app.AppCompatActivity
+          import com.ormannav.app.security.AdminPanelHelper
+          import com.ormannav.app.security.SecurityManager
+
+          class AuthActivity : AppCompatActivity() {
+              private var devClickCount = 0
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val root = ScrollView(this)
+                  val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 72, 48, 48) }
+                  root.addView(box)
+
+                  val title = TextView(this).apply { text = "OrmanNav Güvenli Giriş"; textSize = 22f; gravity = Gravity.CENTER; setPadding(0, 0, 0, 32) }
+                  val etUser = EditText(this).apply { hint = "Kullanıcı Adı" }
+                  val etPass = EditText(this).apply { hint = "Şifre"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+                  val btnLogin = Button(this).apply { text = "Giriş Yap" }
+                  val btnAct = Button(this).apply { text = "Lisans Aktivasyon Kodu Gir" }
+                  val btnReg = Button(this).apply { text = "Yeni Personel Kaydı Oluştur" }
+                  val tvDev = TextView(this).apply {
+                      text = "Geliştirici: Cihan Türkmen"; gravity = Gravity.CENTER; setPadding(0, 64, 0, 16)
+                      setOnClickListener {
+                          if (++devClickCount >= 5) {
+                              devClickCount = 0
+                              AdminPanelHelper.openWithPasswordCheck(this@AuthActivity, true) { openMain() }
+                          }
+                      }
+                  }
+                  listOf(title, etUser, etPass, btnLogin, btnAct, btnReg, tvDev).forEach { box.addView(it) }
+                  setContentView(root)
+
+                  btnLogin.setOnClickListener {
+                      val (ok, msg) = SecurityManager.validateLogin(this, etUser.text.toString(), etPass.text.toString())
+                      Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                      if (ok) openMain()
+                  }
+                  btnAct.setOnClickListener { showActivationDialog() }
+                  btnReg.setOnClickListener { showRegistrationDialog() }
+              }
+
+              private fun showRegistrationDialog() {
+                  val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 24, 40, 16) }
+                  val etFull = EditText(this).apply { hint = "Ad Soyad" }
+                  val etDuty = EditText(this).apply { hint = "Görev Yeri" }
+                  val etPhone = EditText(this).apply { hint = "Telefon" }
+                  val etUser = EditText(this).apply { hint = "Kullanıcı Adı" }
+                  val etPass = EditText(this).apply { hint = "Şifre"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+                  listOf(etFull, etDuty, etPhone, etUser, etPass).forEach { l.addView(it) }
+
+                  AlertDialog.Builder(this).setTitle("Personel Kaydı").setView(l)
+                      .setPositiveButton("Kaydet ve Talep Gönder") { _, _ ->
+                          val f = etFull.text.toString().trim(); val d = etDuty.text.toString().trim()
+                          val p = etPhone.text.toString().trim(); val u = etUser.text.toString().trim(); val pw = etPass.text.toString()
+                          if (f.isEmpty() || d.isEmpty() || p.isEmpty() || u.isEmpty() || pw.isEmpty()) {
+                              Toast.makeText(this, "Tüm alanları doldurun.", Toast.LENGTH_SHORT).show(); return@setPositiveButton
+                          }
+                          val req = SecurityManager.registerUser(this, u, f, d, p, pw)
+                          sendEmail(f, d, p, u, req)
+                          showActivationDialog()
+                      }.setNegativeButton("İptal", null).show()
+              }
+
+              private fun sendEmail(full: String, duty: String, phone: String, user: String, reqCode: String) {
+                  val adminMail = SecurityManager.getAdminEmail()
+                  val body = "Ad Soyad: $full\nGörev Yeri: $duty\nTelefon: $phone\nKullanıcı Adı: $user\nTalep Kodu: $reqCode"
+                  val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$adminMail")).apply {
+                      putExtra(Intent.EXTRA_SUBJECT, "OrmanNav Lisans Talebi - $full")
+                      putExtra(Intent.EXTRA_TEXT, body)
+                  }
+                  try { startActivity(intent) } catch (_: Exception) {
+                      val fb = Intent(Intent.ACTION_SEND).apply {
+                          type = "message/rfc822"
+                          putExtra(Intent.EXTRA_EMAIL, arrayOf(adminMail))
+                          putExtra(Intent.EXTRA_SUBJECT, "OrmanNav Lisans Talebi - $full")
+                          putExtra(Intent.EXTRA_TEXT, body)
+                      }
+                      startActivity(Intent.createChooser(fb, "E-Posta Gönder"))
+                  }
+              }
+
+              private fun showActivationDialog() {
+                  val et = EditText(this).apply { hint = "OGM-XXXX-XXXX" }
+                  AlertDialog.Builder(this).setTitle("Lisans Aktivasyonu").setView(et)
+                      .setPositiveButton("Aktifleştir") { _, _ ->
+                          if (SecurityManager.verifyAndActivateLicense(this, et.text.toString())) {
+                              Toast.makeText(this, "Cihaz lisanslandı!", Toast.LENGTH_LONG).show()
+                          } else Toast.makeText(this, "Geçersiz lisans kodu!", Toast.LENGTH_LONG).show()
+                      }.setNegativeButton("Kapat", null).show()
+              }
+
+              private fun openMain() { startActivity(Intent(this, MainActivity::class.java)); finish() }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/MainActivity.kt
+          package com.ormannav.app
+
+          import android.Manifest
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.location.Location
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.OpenableColumns
+          import android.view.Gravity
+          import android.view.View
+          import android.widget.*
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AlertDialog
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.app.ActivityCompat
+          import com.ormannav.app.graph.GraphBuilder
+          import com.ormannav.app.graph.RoadUpdateManager
+          import com.ormannav.app.hazard.*
+          import com.ormannav.app.io.RawRoadSegment
+          import com.ormannav.app.map.*
+          import com.ormannav.app.model.GeoPoint
+          import com.ormannav.app.nav.LiveGpsTracker
+          import com.ormannav.app.nav.VoiceNavigator
+          import com.ormannav.app.pro.*
+          import com.ormannav.app.routing.HybridRoutePlanner
+          import com.ormannav.app.routing.RouteCalculator
+          import com.ormannav.app.security.AdminPanelHelper
+          import com.ormannav.app.security.SecurityManager
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+          import org.osmdroid.config.Configuration
+          import org.osmdroid.util.GeoPoint as OsmGeoPoint
+          import org.osmdroid.views.MapView
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var mapView: MapView
+              private lateinit var hudText: TextView
+              private lateinit var crosshairView: TextView
+              private lateinit var graphBuilder: GraphBuilder
+              private lateinit var roadUpdateManager: RoadUpdateManager
+              private lateinit var offlineMapManager: OfflineMapManager
+              private lateinit var onlineMapManager: OnlineMapLayerManager
+              private lateinit var orientationManager: MapOrientationManager
+              private lateinit var routeOverlayManager: RouteOverlayManager
+              private lateinit var hybridPlanner: HybridRoutePlanner
+              private lateinit var gpsTracker: LiveGpsTracker
+              private lateinit var voiceNavigator: VoiceNavigator
+              private lateinit var regionSettings: RegionSettingsManager
+              private lateinit var hazardSyncManager: HazardSyncManager
+              private lateinit var hazardOverlayManager: HazardOverlayManager
+              private lateinit var trackRecorder: TrackRecorder
+              private lateinit var fieldUiManager: FieldUiManager
+
+              private var lastLocation: Location? = null
+              private var lastRemainingMeters: Double? = null
+              private var settingsAdminClicks = 0
+
+              private val roadFilesPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+                  if (uris.isNotEmpty()) {
+                      val (graph, count) = roadUpdateManager.addOrUpdateRoads(uris)
+                      roadUpdateManager.renderRoadNetworkOnMap(mapView, graph)
+                      Toast.makeText(this, "$count yol segmenti navigasyon ağına eklendi.", Toast.LENGTH_LONG).show()
+                  }
+              }
+
+              private val offlineMapPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                  uri?.let {
+                      var name = "offline.mbtiles"
+                      contentResolver.query(it, null, null, null, null)?.use { c ->
+                          val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                          if (c.moveToFirst() && idx >= 0) name = c.getString(idx)
+                      }
+                      offlineMapManager.loadOfflineMap(mapView, it, name)
+                      Toast.makeText(this, "Çevrimdışı harita yüklendi: $name", Toast.LENGTH_SHORT).show()
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  // Çift kapı (bypass) güvenlik kontrolü
+                  if (!SecurityManager.isActivated(this)) {
+                      startActivity(Intent(this, AuthActivity::class.java))
+                      finish()
+                      return
+                  }
+
+                  Configuration.getInstance().userAgentValue = packageName
+                  fieldUiManager = FieldUiManager(this)
+                  fieldUiManager.applyScreenSettings(this)
+
+                  val root = FrameLayout(this)
+                  mapView = MapView(this).apply {
+                      setMultiTouchControls(true)
+                      controller.setZoom(14.0)
+                      controller.setCenter(OsmGeoPoint(37.4239, 29.3496))
+                  }
+                  root.addView(mapView)
+
+                  // Merkez nişangahı (AlpineQuest tarzı)
+                  crosshairView = TextView(this).apply {
+                      text = "+"; textSize = 26f; setTextColor(Color.RED); gravity = Gravity.CENTER
+                      visibility = if (fieldUiManager.showCrosshair) View.VISIBLE else View.GONE
+                  }
+                  root.addView(crosshairView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+
+                  // Üst şeffaf telemetri HUD paneli
+                  hudText = TextView(this).apply {
+                      text = "GPS Sinyali Bekleniyor..."
+                      setTextColor(Color.WHITE)
+                      setBackgroundColor(Color.parseColor("#B0000000"))
+                      setPadding(24, 16, 24, 16)
+                  }
+                  root.addView(hudText, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+
+                  // Alt kontrol çubuğu
+                  val bottomScroll = HorizontalScrollView(this).apply { setBackgroundColor(Color.parseColor("#CC1B5E20")) }
+                  val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(8, 8, 8, 8) }
+                  bottomScroll.addView(btnRow)
+                  root.addView(bottomScroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+
+                  setContentView(root)
+
+                  graphBuilder = GraphBuilder(this)
+                  roadUpdateManager = RoadUpdateManager(this, graphBuilder)
+                  offlineMapManager = OfflineMapManager(this)
+                  onlineMapManager = OnlineMapLayerManager(this)
+                  orientationManager = MapOrientationManager(this, mapView)
+                  hybridPlanner = HybridRoutePlanner(this, RouteCalculator())
+                  voiceNavigator = VoiceNavigator(this)
+                  regionSettings = RegionSettingsManager(this)
+                  hazardOverlayManager = HazardOverlayManager(mapView)
+                  hazardSyncManager = HazardSyncManager(this, regionSettings) { list ->
+                      runOnUiThread { hazardOverlayManager.renderHazards(list) }
+                  }
+                  trackRecorder = TrackRecorder(this, mapView)
+
+                  routeOverlayManager = RouteOverlayManager(mapView) { target ->
+                      val start = lastLocation?.let { GeoPoint(it.latitude, it.longitude) }
+                          ?: GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                      CoroutineScope(Dispatchers.Main).launch {
+                          val res = hybridPlanner.planRoute(graphBuilder.loadExistingGraph(), start, target)
+                          if (res != null) {
+                              routeOverlayManager.drawRoute(res)
+                              lastRemainingMeters = res.totalDistanceMeters
+                              voiceNavigator.startNavigation(res.pathPoints)
+                              Toast.makeText(this@MainActivity, "Rota hazır: %.2f km".format(res.totalDistanceMeters / 1000.0), Toast.LENGTH_LONG).show()
+                          } else {
+                              Toast.makeText(this@MainActivity, "Rota hesaplanamadı.", Toast.LENGTH_SHORT).show()
+                          }
+                      }
+                  }.apply { attachTapListener() }
+
+                  // Butonları ekle
+                  btnRow.addView(makeBtn("Yol Ekle (KML/SHP)") { roadFilesPicker.launch(arrayOf("*/*")) })
+                  btnRow.addView(makeBtn("Harita Katmanı") { showMapLayerDialog() })
+                  val btnCompass = makeBtn("Yön: Gidiş") { }
+                  btnCompass.setOnClickListener {
+                      val m = orientationManager.cycleMode()
+                      btnCompass.text = "Yön: ${m.label}"
+                  }
+                  btnRow.addView(btnCompass)
+
+                  val btnTrack = makeBtn("İz Kaydet") { }
+                  btnTrack.setOnClickListener {
+                      if (!trackRecorder.isRecording) {
+                          trackRecorder.startRecording()
+                          btnTrack.text = "İzi Durdur"
+                      } else {
+                          btnTrack.text = "İz Kaydet"
+                          trackRecorder.stopAndExportKml()?.let { handleStoppedTrack(it) }
+                      }
+                  }
+                  btnRow.addView(btnTrack)
+                  btnRow.addView(makeBtn("Yol Uyarısı") { showHazardReportDialog() })
+                  btnRow.addView(makeBtn("Ayarlar") { showSettingsDialog() })
+
+                  onlineMapManager.switchLayer(OnlineMapLayer.GOOGLE_HYBRID)
+                  roadUpdateManager.renderRoadNetworkOnMap(mapView, graphBuilder.loadExistingGraph())
+                  hazardOverlayManager.renderHazards(hazardSyncManager.loadLocalHazards())
+                  fieldUiManager.applyMapNightFilter(mapView)
+
+                  gpsTracker = LiveGpsTracker(this) { loc ->
+                      lastLocation = loc
+                      val pt = GeoPoint(loc.latitude, loc.longitude)
+                      orientationManager.onGpsUpdate(loc.bearing, loc.speed)
+                      voiceNavigator.updatePosition(pt)
+                      if (trackRecorder.isRecording) trackRecorder.addPoint(pt)
+                      hudText.text = fieldUiManager.formatTelemetryHud(loc, lastRemainingMeters)
+                  }
+
+                  requestPermissionsIfNeeded()
+              }
+
+              private fun makeBtn(title: String, action: () -> Unit) = Button(this).apply {
+                  text = title; setOnClickListener { action() }
+              }
+
+              private fun showMapLayerDialog() {
+                  val items = arrayOf("Google Hibrit (Online)", "Google Yol (Online)", "OpenStreetMap (Online)", "OpenTopoMap (Online)", "Çevrimdışı Harita Aç (.gpkg / .mbtiles / .sqlitedb)")
+                  AlertDialog.Builder(this).setTitle("Harita Altlığı Seç").setItems(items) { _, w ->
+                      when (w) {
+                          0 -> onlineMapManager.switchLayer(OnlineMapLayer.GOOGLE_HYBRID)
+                          1 -> onlineMapManager.switchLayer(OnlineMapLayer.GOOGLE_ROADS)
+                          2 -> onlineMapManager.switchLayer(OnlineMapLayer.OSM_STANDARD)
+                          3 -> onlineMapManager.switchLayer(OnlineMapLayer.OPEN_TOPO)
+                          4 -> offlineMapPicker.launch(arrayOf("*/*"))
+                      }
+                  }.show()
+              }
+
+              private fun showHazardReportDialog() {
+                  val pos = lastLocation?.let { GeoPoint(it.latitude, it.longitude) }
+                      ?: GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                  val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 24, 40, 16) }
+                  val rg = RadioGroup(this)
+                  val rbClosed = RadioButton(this).apply { text = HazardType.CLOSED.label; isChecked = true }
+                  val rbDamaged = RadioButton(this).apply { text = HazardType.DAMAGED.label }
+                  rg.addView(rbClosed); rg.addView(rbDamaged)
+                  val etNote = EditText(this).apply { hint = "Açıklama (örn: Heyelan / Köprü yıkık)" }
+                  l.addView(rg); l.addView(etNote)
+
+                  AlertDialog.Builder(this).setTitle("Kapalı / Hasarlı Yol Bildir").setView(l)
+                      .setPositiveButton("Kaydet ve Bildir") { _, _ ->
+                          val type = if (rbClosed.isChecked) HazardType.CLOSED else HazardType.DAMAGED
+                          hazardSyncManager.reportHazard(pos.lat, pos.lon, type, etNote.text.toString().ifBlank { type.label })
+                          Toast.makeText(this, "Uyarı kaydedildi. Online olunca yöreye iletilecek.", Toast.LENGTH_SHORT).show()
+                      }.setNegativeButton("İptal", null).show()
+              }
+
+              private fun showSettingsDialog() {
+                  settingsAdminClicks = 0
+                  val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 24, 40, 16) }
+                  val etRegion = EditText(this).apply { hint = "Yöre / Şeflik Kodu"; setText(regionSettings.regionCode) }
+                  val etName = EditText(this).apply { hint = "Kullanıcı Adınız"; setText(regionSettings.userName) }
+                  val etUrl = EditText(this).apply { hint = "Senkronizasyon Sunucu URL (Opsiyonel)"; setText(regionSettings.syncEndpointUrl) }
+                  val cbAuth = CheckBox(this).apply { text = "Yöre Yetkilisi Olarak İşaretle"; isChecked = regionSettings.isAuthorized }
+                  val cbScreen = CheckBox(this).apply { text = "Ekranı Sürekli Açık Tut"; isChecked = fieldUiManager.keepScreenOn }
+                  val cbNight = CheckBox(this).apply { text = "Gece Sürüş Harita Filtresi"; isChecked = fieldUiManager.nightModeMap }
+                  val cbCross = CheckBox(this).apply { text = "Merkez Nişangahı (+) Göster"; isChecked = fieldUiManager.showCrosshair }
+                  val tvVer = TextView(this).apply {
+                      text = "OrmanNav v1.0 | Geliştirici: Cihan Türkmen"
+                      gravity = Gravity.CENTER; setPadding(0, 32, 0, 8)
+                      setOnClickListener {
+                          if (++settingsAdminClicks >= 5) {
+                              settingsAdminClicks = 0
+                              AdminPanelHelper.openWithPasswordCheck(this@MainActivity, false)
+                          }
+                      }
+                  }
+                  listOf(etRegion, etName, etUrl, cbAuth, cbScreen, cbNight, cbCross, tvVer).forEach { l.addView(it) }
+
+                  AlertDialog.Builder(this).setTitle("Ayarlar").setView(l)
+                      .setPositiveButton("Kaydet") { _, _ ->
+                          regionSettings.regionCode = etRegion.text.toString()
+                          regionSettings.userName = etName.text.toString()
+                          regionSettings.syncEndpointUrl = etUrl.text.toString()
+                          regionSettings.isAuthorized = cbAuth.isChecked
+                          fieldUiManager.keepScreenOn = cbScreen.isChecked
+                          fieldUiManager.nightModeMap = cbNight.isChecked
+                          fieldUiManager.showCrosshair = cbCross.isChecked
+                          fieldUiManager.applyScreenSettings(this)
+                          fieldUiManager.applyMapNightFilter(mapView)
+                          crosshairView.visibility = if (fieldUiManager.showCrosshair) View.VISIBLE else View.GONE
+                      }.setNegativeButton("Kapat", null).show()
+              }
+
+              private fun handleStoppedTrack(result: TrackExportResult) {
+                  val currentGraph = graphBuilder.loadExistingGraph()
+                  if (NewRoadDetector.isNewRoadArea(result.points, currentGraph)) {
+                      val input = EditText(this).apply { setText("İz Yolu - ${result.kmlFile.nameWithoutExtension}") }
+                      AlertDialog.Builder(this)
+                          .setTitle("Yeni Yol Tespit Edildi")
+                          .setMessage("Bu güzergahta mevcut yol ağı yok. Kaydedilen KML izini navigasyon ağına eklemek ister misiniz?")
+                          .setView(input)
+                          .setPositiveButton("Evet, Ağa Ekle") { _, _ ->
+                              val g = graphBuilder.appendSegmentsToGraph(listOf(RawRoadSegment(input.text.toString().ifBlank { "Yeni Yol" }, result.points)))
+                              roadUpdateManager.renderRoadNetworkOnMap(mapView, g)
+                              Toast.makeText(this, "Yeni yol navigasyon ağına eklendi.", Toast.LENGTH_LONG).show()
+                          }
+                          .setNegativeButton("Hayır, Sadece KML Sakla", null).show()
+                  } else {
+                      Toast.makeText(this, "İz KML kaydedildi: ${result.kmlFile.name}", Toast.LENGTH_SHORT).show()
+                  }
+              }
+
+              private fun requestPermissionsIfNeeded() {
+                  val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                  val missing = perms.filter { ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+                  if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), 101)
+                  else gpsTracker.startTracking()
+              }
+
+              override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  if (requestCode == 101 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                      gpsTracker.startTracking()
+                  }
+              }
+
+              override fun onResume() { super.onResume(); mapView.onResume(); orientationManager.start(); hazardSyncManager.startNetworkMonitoring() }
+              override fun onPause() { super.onPause(); mapView.onPause(); orientationManager.stop(); hazardSyncManager.stopNetworkMonitoring() }
+              override fun onDestroy() { super.onDestroy(); gpsTracker.stopTracking(); voiceNavigator.shutdown() }
+          }
+          EOF
+
+      - name: İmzalı Release APK Derle
+        run: gradle assembleRelease --no-daemon
+
+      - name: APK Çıktısını Yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrmanNav-Release-APK
+          path: app/build/outputs/apk/release/app-release.apk
