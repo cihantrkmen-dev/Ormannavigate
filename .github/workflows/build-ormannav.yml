@@ -132,7 +132,6 @@ jobs:
           -keep class com.ormannav.app.AuthActivity { *; }
           -keep class com.ormannav.app.MainActivity { *; }
 
-          # Kotlinx Serialization koruma
           -keepattributes *Annotation*, InnerClasses
           -dontnote kotlinx.serialization.AnnotationsKt
           -keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
@@ -144,7 +143,6 @@ jobs:
           -keepclassmembers class com.ormannav.app.graph.** { *** Companion; }
           -keepclassmembers class com.ormannav.app.hazard.** { *** Companion; }
 
-          # OSMDroid koruma
           -keep class org.osmdroid.** { *; }
           -dontwarn org.osmdroid.**
           EOF
@@ -1432,18 +1430,8 @@ jobs:
 
       - name: Modül 12 (Güvenlik, Şifreli Yönetici Değerleri, AuthActivity ve MainActivity)
         run: |
-          python3 - << 'PYEOF'
-          import os, hashlib
-
-          salt1_obf = [70, 78, 68, 86, 59, 57, 59, 63, 86, 66, 72, 74, 86, 70, 65, 76, 75, 86, 56, 58]
-          salt1 = "".join(chr(x ^ 9) for x in salt1_obf)
-          admin_pass = os.environ["ADMIN_PASS"]
-          admin_email = os.environ["ADMIN_EMAIL"]
-
-          admin_pass_hash = hashlib.sha256((admin_pass + salt1).encode("utf-8")).hexdigest().upper()
-          admin_email_obf = ", ".join(str(ord(c) ^ 13) for c in admin_email)
-
-          code = f'''package com.ormannav.app.security
+          cat << 'EOF' > app/src/main/java/com/ormannav/app/security/SecurityManager.kt
+          package com.ormannav.app.security
 
           import android.annotation.SuppressLint
           import android.content.Context
@@ -1452,49 +1440,49 @@ jobs:
           import java.security.MessageDigest
           import java.util.Locale
 
-          object SecurityManager {{
+          object SecurityManager {
               private const val VAULT_NAME = "ogm_sec_vault_v4"
               private val SALT_1_OBF = intArrayOf(70, 78, 68, 86, 59, 57, 59, 63, 86, 66, 72, 74, 86, 70, 65, 76, 75, 86, 56, 58)
               private val SALT_2_OBF = intArrayOf(68, 76, 70, 84, 71, 66, 72, 78, 69, 72, 84, 57, 59, 57, 61, 84, 83, 68, 69)
-              private const val ADMIN_PASS_HASH = "{admin_pass_hash}"
-              private val ADMIN_EMAIL_OBF = intArrayOf({admin_email_obf})
+              private const val ADMIN_PASS_HASH = "__ADMIN_PASS_HASH__"
+              private val ADMIN_EMAIL_OBF = intArrayOf(__ADMIN_EMAIL_OBF__)
 
-              private fun getSalt1(): String = String(CharArray(SALT_1_OBF.size) {{ i -> (SALT_1_OBF[i] xor 9).toChar() }})
-              private fun getSalt2(): String = String(CharArray(SALT_2_OBF.size) {{ i -> (SALT_2_OBF[i] xor 11).toChar() }})
-              fun getAdminEmail(): String = String(CharArray(ADMIN_EMAIL_OBF.size) {{ i -> (ADMIN_EMAIL_OBF[i] xor 13).toChar() }})
+              private fun getSalt1(): String = String(CharArray(SALT_1_OBF.size) { i -> (SALT_1_OBF[i] xor 9).toChar() })
+              private fun getSalt2(): String = String(CharArray(SALT_2_OBF.size) { i -> (SALT_2_OBF[i] xor 11).toChar() })
+              fun getAdminEmail(): String = String(CharArray(ADMIN_EMAIL_OBF.size) { i -> (ADMIN_EMAIL_OBF[i] xor 13).toChar() })
 
-              private fun sha256Hex(input: String): String {{
+              private fun sha256Hex(input: String): String {
                   val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
-                  return digest.joinToString("") {{ "%02X".format(it) }}
-              }}
+                  return digest.joinToString("") { "%02X".format(it) }
+              }
 
-              private fun xorEncryptBase64(plain: String, key: String): String {{
+              private fun xorEncryptBase64(plain: String, key: String): String {
                   val p = plain.toByteArray(Charsets.UTF_8); val k = key.toByteArray(Charsets.UTF_8)
-                  val out = ByteArray(p.size) {{ i -> (p[i].toInt() xor k[i % k.size].toInt()).toByte() }}
+                  val out = ByteArray(p.size) { i -> (p[i].toInt() xor k[i % k.size].toInt()).toByte() }
                   return Base64.encodeToString(out, Base64.NO_WRAP)
-              }}
+              }
 
-              private fun xorDecryptBase64(encoded: String, key: String): String = try {{
+              private fun xorDecryptBase64(encoded: String, key: String): String = try {
                   val d = Base64.decode(encoded, Base64.NO_WRAP); val k = key.toByteArray(Charsets.UTF_8)
-                  String(ByteArray(d.size) {{ i -> (d[i].toInt() xor k[i % k.size].toInt()).toByte() }}, Charsets.UTF_8)
-              }} catch (_: Exception) {{ "" }}
+                  String(ByteArray(d.size) { i -> (d[i].toInt() xor k[i % k.size].toInt()).toByte() }, Charsets.UTF_8)
+              } catch (_: Exception) { "" }
 
               @SuppressLint("HardwareIds")
               fun getDeviceId(context: Context): String =
                   Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN_DEV"
 
-              fun generateRequestCode(context: Context, user: String, full: String, duty: String, phone: String): String {{
-                  val raw = "${{user.trim().lowercase(Locale.US)}}|${{full.trim().lowercase(Locale.US)}}|${{duty.trim().lowercase(Locale.US)}}|${{phone.trim().lowercase(Locale.US)}}|${{getDeviceId(context).trim().lowercase(Locale.US)}}|${{getSalt1()}}"
+              fun generateRequestCode(context: Context, user: String, full: String, duty: String, phone: String): String {
+                  val raw = "${user.trim().lowercase(Locale.US)}|${full.trim().lowercase(Locale.US)}|${duty.trim().lowercase(Locale.US)}|${phone.trim().lowercase(Locale.US)}|${getDeviceId(context).trim().lowercase(Locale.US)}|${getSalt1()}"
                   val hex = sha256Hex(raw)
-                  return "TALEP-${{hex.substring(0, 4)}}-${{hex.substring(4, 8)}}"
-              }}
+                  return "TALEP-${hex.substring(0, 4)}-${hex.substring(4, 8)}"
+              }
 
-              fun generateLicenseFromRequestCode(requestCode: String): String {{
-                  val hex = sha256Hex("${{requestCode.trim().uppercase(Locale.US)}}|${{getSalt2()}}")
-                  return "OGM-${{hex.substring(0, 4)}}-${{hex.substring(4, 8)}}"
-              }}
+              fun generateLicenseFromRequestCode(requestCode: String): String {
+                  val hex = sha256Hex("${requestCode.trim().uppercase(Locale.US)}|${getSalt2()}")
+                  return "OGM-${hex.substring(0, 4)}-${hex.substring(4, 8)}"
+              }
 
-              fun registerUser(context: Context, user: String, full: String, duty: String, phone: String, pass: String): String {{
+              fun registerUser(context: Context, user: String, full: String, duty: String, phone: String, pass: String): String {
                   val s1 = getSalt1()
                   val req = generateRequestCode(context, user, full, duty, phone)
                   val licHash = sha256Hex(generateLicenseFromRequestCode(req))
@@ -1507,19 +1495,19 @@ jobs:
                       .putString("u_expected_lic", licHash)
                       .putBoolean("u_activated", false).apply()
                   return req
-              }}
+              }
 
-              fun verifyAndActivateLicense(context: Context, inputLicense: String): Boolean {{
+              fun verifyAndActivateLicense(context: Context, inputLicense: String): Boolean {
                   val prefs = context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE)
                   val expected = prefs.getString("u_expected_lic", null) ?: return false
-                  if (sha256Hex(inputLicense.trim().uppercase(Locale.US)) == expected) {{
+                  if (sha256Hex(inputLicense.trim().uppercase(Locale.US)) == expected) {
                       prefs.edit().putBoolean("u_activated", true).apply()
                       return true
-                  }}
+                  }
                   return false
-              }}
+              }
 
-              fun validateLogin(context: Context, inputUser: String, inputPass: String): Pair<Boolean, String> {{
+              fun validateLogin(context: Context, inputUser: String, inputPass: String): Pair<Boolean, String> {
                   val prefs = context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE)
                   val encUser = prefs.getString("u_name", null) ?: return false to "Kayıtlı kullanıcı bulunamadı."
                   val savedPass = prefs.getString("u_pass", null) ?: return false to "Kasa verisi eksik."
@@ -1528,11 +1516,11 @@ jobs:
                   if (sha256Hex(inputPass + s1) != savedPass) return false to "Şifre hatalı."
                   if (!prefs.getBoolean("u_activated", false)) return false to "Hesabınız lisanslanmamış."
                   return true to "Giriş başarılı."
-              }}
+              }
 
               fun verifyAdminPassword(input: String): Boolean = sha256Hex(input + getSalt1()) == ADMIN_PASS_HASH
 
-              fun activateAdminDeviceDirectly(context: Context) {{
+              fun activateAdminDeviceDirectly(context: Context) {
                   val s1 = getSalt1()
                   context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE).edit()
                       .putString("u_name", xorEncryptBase64("admin", s1))
@@ -1541,14 +1529,22 @@ jobs:
                       .putString("u_phone", xorEncryptBase64("-", s1))
                       .putString("u_pass", ADMIN_PASS_HASH)
                       .putBoolean("u_activated", true).apply()
-              }}
+              }
 
               fun isActivated(context: Context): Boolean =
                   context.getSharedPreferences(VAULT_NAME, Context.MODE_PRIVATE).getBoolean("u_activated", false)
-          }}
-          '''
-          with open("app/src/main/java/com/ormannav/app/security/SecurityManager.kt", "w", encoding="utf-8") as f:
-              f.write(code)
+          }
+          EOF
+
+          python3 - << 'PYEOF'
+          import os, hashlib
+          salt1_obf = [70, 78, 68, 86, 59, 57, 59, 63, 86, 66, 72, 74, 86, 70, 65, 76, 75, 86, 56, 58]
+          salt1 = "".join(chr(x ^ 9) for x in salt1_obf)
+          h = hashlib.sha256((os.environ["ADMIN_PASS"] + salt1).encode("utf-8")).hexdigest().upper()
+          e = ", ".join(str(ord(c) ^ 13) for c in os.environ["ADMIN_EMAIL"])
+          p = "app/src/main/java/com/ormannav/app/security/SecurityManager.kt"
+          txt = open(p, encoding="utf-8").read().replace("__ADMIN_PASS_HASH__", h).replace("__ADMIN_EMAIL_OBF__", e)
+          open(p, "w", encoding="utf-8").write(txt)
           PYEOF
 
           cat << 'EOF' > app/src/main/java/com/ormannav/app/security/AdminPanelHelper.kt
@@ -1761,7 +1757,6 @@ jobs:
           import kotlinx.coroutines.CoroutineScope
           import kotlinx.coroutines.Dispatchers
           import kotlinx.coroutines.launch
-          import kotlinx.coroutines.withContext
           import org.osmdroid.config.Configuration
           import org.osmdroid.util.GeoPoint as OsmGeoPoint
           import org.osmdroid.views.MapView
@@ -1812,7 +1807,6 @@ jobs:
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
-                  // Çift kapı (bypass) güvenlik kontrolü
                   if (!SecurityManager.isActivated(this)) {
                       startActivity(Intent(this, AuthActivity::class.java))
                       finish()
@@ -1831,14 +1825,12 @@ jobs:
                   }
                   root.addView(mapView)
 
-                  // Merkez nişangahı (AlpineQuest tarzı)
                   crosshairView = TextView(this).apply {
                       text = "+"; textSize = 26f; setTextColor(Color.RED); gravity = Gravity.CENTER
                       visibility = if (fieldUiManager.showCrosshair) View.VISIBLE else View.GONE
                   }
                   root.addView(crosshairView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
 
-                  // Üst şeffaf telemetri HUD paneli
                   hudText = TextView(this).apply {
                       text = "GPS Sinyali Bekleniyor..."
                       setTextColor(Color.WHITE)
@@ -1847,7 +1839,6 @@ jobs:
                   }
                   root.addView(hudText, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
-                  // Alt kontrol çubuğu
                   val bottomScroll = HorizontalScrollView(this).apply { setBackgroundColor(Color.parseColor("#CC1B5E20")) }
                   val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(8, 8, 8, 8) }
                   bottomScroll.addView(btnRow)
@@ -1885,7 +1876,6 @@ jobs:
                       }
                   }.apply { attachTapListener() }
 
-                  // Butonları ekle
                   btnRow.addView(makeBtn("Yol Ekle (KML/SHP)") { roadFilesPicker.launch(arrayOf("*/*")) })
                   btnRow.addView(makeBtn("Harita Katmanı") { showMapLayerDialog() })
                   val btnCompass = makeBtn("Yön: Gidiş") { }
