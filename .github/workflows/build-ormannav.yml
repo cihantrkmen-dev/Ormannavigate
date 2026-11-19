@@ -80,8 +80,8 @@ jobs:
                   applicationId = "com.ormannav.app"
                   minSdk = 24
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0.0"
+                  versionCode = 2
+                  versionName = "1.1.0"
               }
 
               signingConfigs {
@@ -899,6 +899,7 @@ jobs:
 
           class RouteOverlayManager(
               private val mapView: MapView,
+              private val onSingleTap: () -> Unit,
               private val onDestinationSelected: (GeoPoint) -> Unit
           ) {
               private var routeLine: Polyline? = null
@@ -906,14 +907,21 @@ jobs:
 
               fun attachTapListener() {
                   val receiver = object : MapEventsReceiver {
-                      override fun singleTapConfirmedHelper(p: OsmGeoPoint): Boolean = false
+                      override fun singleTapConfirmedHelper(p: OsmGeoPoint): Boolean {
+                          onSingleTap()
+                          return false
+                      }
                       override fun longPressHelper(p: OsmGeoPoint): Boolean {
-                          setDestinationMarker(p)
-                          onDestinationSelected(GeoPoint(p.latitude, p.longitude))
+                          selectDestination(GeoPoint(p.latitude, p.longitude))
                           return true
                       }
                   }
                   mapView.overlays.add(0, MapEventsOverlay(receiver))
+              }
+
+              fun selectDestination(point: GeoPoint) {
+                  setDestinationMarker(OsmGeoPoint(point.lat, point.lon))
+                  onDestinationSelected(point)
               }
 
               private fun setDestinationMarker(point: OsmGeoPoint) {
@@ -935,6 +943,14 @@ jobs:
                       outlinePaint.strokeWidth = 10f
                   }
                   mapView.overlays.add(routeLine)
+                  mapView.invalidate()
+              }
+
+              fun clearRoute() {
+                  routeLine?.let { mapView.overlays.remove(it) }
+                  destinationMarker?.let { mapView.overlays.remove(it) }
+                  routeLine = null
+                  destinationMarker = null
                   mapView.invalidate()
               }
           }
@@ -1045,10 +1061,29 @@ jobs:
                   override fun onProviderDisabled(provider: String) {}
               }
 
+              fun isGpsEnabled(): Boolean =
+                  locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                  locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+              @SuppressLint("MissingPermission")
+              fun getLastKnownLocation(): Location? {
+                  val gps = try { locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (_: Exception) { null }
+                  val net = try { locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (_: Exception) { null }
+                  return when {
+                      gps != null && net != null -> if (gps.time >= net.time) gps else net
+                      gps != null -> gps
+                      else -> net
+                  }
+              }
+
               @SuppressLint("MissingPermission")
               fun startTracking() {
+                  getLastKnownLocation()?.let { onLocationUpdate(it) }
                   if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                      locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 3f, listener)
+                      locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 2f, listener)
+                  }
+                  if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                      locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 10f, listener)
                   }
               }
 
@@ -1080,6 +1115,11 @@ jobs:
               fun startNavigation(route: List<GeoPoint>) {
                   activeRoute = route; currentIdx = 0; lastAnnouncedIdx = -1
                   speak("Navigasyon başlatıldı. Rotayı takip edin.")
+              }
+
+              fun stopNavigation() {
+                  activeRoute = emptyList()
+                  tts?.stop()
               }
 
               fun updatePosition(pos: GeoPoint) {
@@ -1421,10 +1461,10 @@ jobs:
               }
 
               fun formatTelemetryHud(location: Location?, remainingMeters: Double?): String {
-                  if (location == null) return "GPS Sinyali Bekleniyor..."
-                  val base = String.format(Locale.US, "%.5f, %.5f | Rakım: %dm | %.1f km/s | ±%dm",
+                  if (location == null) return "GPS Sinyali Bekleniyor... (Hedef için haritaya uzun basın veya ➤)"
+                  val base = String.format(Locale.US, "%.5f, %.5f | %dm | %.1f km/s | ±%dm",
                       location.latitude, location.longitude, location.altitude.toInt(), location.speed * 3.6, location.accuracy.toInt())
-                  return if (remainingMeters != null) String.format(Locale.US, "%s | Hedef: %.2f km", base, remainingMeters / 1000.0) else base
+                  return if (remainingMeters != null) String.format(Locale.US, "%s | %.2f km", base, remainingMeters / 1000.0) else base
               }
           }
           EOF
@@ -1730,11 +1770,13 @@ jobs:
           import android.content.Intent
           import android.content.pm.PackageManager
           import android.graphics.Color
+          import android.graphics.drawable.GradientDrawable
           import android.location.Location
           import android.net.Uri
           import android.os.Build
           import android.os.Bundle
           import android.provider.OpenableColumns
+          import android.provider.Settings
           import android.view.Gravity
           import android.view.View
           import android.widget.*
@@ -1761,12 +1803,17 @@ jobs:
           import org.osmdroid.config.Configuration
           import org.osmdroid.util.GeoPoint as OsmGeoPoint
           import org.osmdroid.views.MapView
+          import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+          import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
           class MainActivity : AppCompatActivity() {
 
               private lateinit var mapView: MapView
+              private lateinit var myLocationOverlay: MyLocationNewOverlay
               private lateinit var hudText: TextView
               private lateinit var crosshairView: TextView
+              private lateinit var menuPanel: ScrollView
+
               private lateinit var graphBuilder: GraphBuilder
               private lateinit var roadUpdateManager: RoadUpdateManager
               private lateinit var offlineMapManager: OfflineMapManager
@@ -1784,7 +1831,10 @@ jobs:
 
               private var lastLocation: Location? = null
               private var lastRemainingMeters: Double? = null
+              private var hasCenteredOnce = false
               private var settingsAdminClicks = 0
+
+              private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
               private val roadFilesPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
                   if (uris.isNotEmpty()) {
@@ -1821,29 +1871,68 @@ jobs:
                   val root = FrameLayout(this)
                   mapView = MapView(this).apply {
                       setMultiTouchControls(true)
-                      controller.setZoom(14.0)
+                      controller.setZoom(15.0)
                       controller.setCenter(OsmGeoPoint(37.4239, 29.3496))
                   }
                   root.addView(mapView)
 
+                  // Canlı GPS konumu ve yön oku katmanı
+                  myLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(this), mapView).apply {
+                      enableMyLocation()
+                      enableFollowLocation()
+                  }
+                  mapView.overlays.add(myLocationOverlay)
+
+                  // Merkez nişangahı (+)
                   crosshairView = TextView(this).apply {
                       text = "+"; textSize = 26f; setTextColor(Color.RED); gravity = Gravity.CENTER
                       visibility = if (fieldUiManager.showCrosshair) View.VISIBLE else View.GONE
                   }
                   root.addView(crosshairView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
 
+                  // Üst şeffaf telemetri şeridi
                   hudText = TextView(this).apply {
-                      text = "GPS Sinyali Bekleniyor..."
+                      text = "GPS Sinyali Bekleniyor... (Hedef: Uzun bas veya ➤)"
+                      textSize = 12f
                       setTextColor(Color.WHITE)
-                      setBackgroundColor(Color.parseColor("#B0000000"))
-                      setPadding(24, 16, 24, 16)
+                      setBackgroundColor(Color.parseColor("#B8000000"))
+                      setPadding(dp(12), dp(8), dp(12), dp(8))
                   }
                   root.addView(hudText, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
-                  val bottomScroll = HorizontalScrollView(this).apply { setBackgroundColor(Color.parseColor("#CC1B5E20")) }
-                  val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(8, 8, 8, 8) }
-                  bottomScroll.addView(btnRow)
-                  root.addView(bottomScroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+                  // Açılır-Kapanır Menü Paneli (Varsayılan gizli)
+                  menuPanel = ScrollView(this).apply {
+                      visibility = View.GONE
+                      background = GradientDrawable().apply {
+                          setColor(Color.parseColor("#E61B1B1B"))
+                          cornerRadius = dp(14).toFloat()
+                      }
+                      setPadding(dp(10), dp(10), dp(10), dp(10))
+                  }
+                  val menuList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                  menuPanel.addView(menuList)
+                  val menuParams = FrameLayout.LayoutParams(dp(230), FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+                      setMargins(dp(12), dp(64), dp(72), dp(20))
+                  }
+                  root.addView(menuPanel, menuParams)
+
+                  // Sağ alt köşede taşmayan 3 kompakt yüzer buton
+                  val fabCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
+                  val btnGps = makeCircleBtn("◎", "#1565C0") { centerOnMyLocation() }
+                  val btnNavCross = makeCircleBtn("➤", "#E65100") {
+                      val center = mapView.mapCenter
+                      routeOverlayManager.selectDestination(GeoPoint(center.latitude, center.longitude))
+                  }
+                  val btnMenu = makeCircleBtn("☰", "#1B5E20") {
+                      menuPanel.visibility = if (menuPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                  }
+                  fabCol.addView(btnGps)
+                  fabCol.addView(btnNavCross)
+                  fabCol.addView(btnMenu)
+                  val fabParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+                      setMargins(dp(8), dp(8), dp(14), dp(20))
+                  }
+                  root.addView(fabCol, fabParams)
 
                   setContentView(root)
 
@@ -1861,44 +1950,43 @@ jobs:
                   }
                   trackRecorder = TrackRecorder(this, mapView)
 
-                  routeOverlayManager = RouteOverlayManager(mapView) { target ->
-                      val start = lastLocation?.let { GeoPoint(it.latitude, it.longitude) }
-                          ?: GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
-                      CoroutineScope(Dispatchers.Main).launch {
-                          val res = hybridPlanner.planRoute(graphBuilder.loadExistingGraph(), start, target)
-                          if (res != null) {
-                              routeOverlayManager.drawRoute(res)
-                              lastRemainingMeters = res.totalDistanceMeters
-                              voiceNavigator.startNavigation(res.pathPoints)
-                              Toast.makeText(this@MainActivity, "Rota hazır: %.2f km".format(res.totalDistanceMeters / 1000.0), Toast.LENGTH_LONG).show()
-                          } else {
-                              Toast.makeText(this@MainActivity, "Rota hesaplanamadı.", Toast.LENGTH_SHORT).show()
-                          }
-                      }
-                  }.apply { attachTapListener() }
+                  routeOverlayManager = RouteOverlayManager(
+                      mapView = mapView,
+                      onSingleTap = { if (menuPanel.visibility == View.VISIBLE) menuPanel.visibility = View.GONE },
+                      onDestinationSelected = { target -> startRoutingTo(target) }
+                  ).apply { attachTapListener() }
 
-                  btnRow.addView(makeBtn("Yol Ekle (KML/SHP)") { roadFilesPicker.launch(arrayOf("*/*")) })
-                  btnRow.addView(makeBtn("Harita Katmanı") { showMapLayerDialog() })
-                  val btnCompass = makeBtn("Yön: Gidiş") { }
+                  // Menü seçeneklerini ekle (Seçilince menü otomatik kapanır)
+                  menuList.addView(makeMenuBtn("📂 Yol Ekle (KML / SHP)") { roadFilesPicker.launch(arrayOf("*/*")) })
+                  menuList.addView(makeMenuBtn("🗺️ Harita Katmanı") { showMapLayerDialog() })
+                  val btnCompass = makeMenuBtn("🧭 Yön: Gidiş Yönü") { }
                   btnCompass.setOnClickListener {
                       val m = orientationManager.cycleMode()
-                      btnCompass.text = "Yön: ${m.label}"
+                      btnCompass.text = "🧭 Yön: ${m.label}"
+                      menuPanel.visibility = View.GONE
                   }
-                  btnRow.addView(btnCompass)
+                  menuList.addView(btnCompass)
 
-                  val btnTrack = makeBtn("İz Kaydet") { }
+                  val btnTrack = makeMenuBtn("⏺️ İz Kaydını Başlat") { }
                   btnTrack.setOnClickListener {
                       if (!trackRecorder.isRecording) {
                           trackRecorder.startRecording()
-                          btnTrack.text = "İzi Durdur"
+                          btnTrack.text = "⏹️ İz Kaydını Durdur"
                       } else {
-                          btnTrack.text = "İz Kaydet"
+                          btnTrack.text = "⏺️ İz Kaydını Başlat"
                           trackRecorder.stopAndExportKml()?.let { handleStoppedTrack(it) }
                       }
+                      menuPanel.visibility = View.GONE
                   }
-                  btnRow.addView(btnTrack)
-                  btnRow.addView(makeBtn("Yol Uyarısı") { showHazardReportDialog() })
-                  btnRow.addView(makeBtn("Ayarlar") { showSettingsDialog() })
+                  menuList.addView(btnTrack)
+                  menuList.addView(makeMenuBtn("⚠️ Kapalı/Hasarlı Yol Bildir") { showHazardReportDialog() })
+                  menuList.addView(makeMenuBtn("✖️ Rotayı Temizle") {
+                      routeOverlayManager.clearRoute()
+                      voiceNavigator.stopNavigation()
+                      lastRemainingMeters = null
+                      Toast.makeText(this, "Rota temizlendi.", Toast.LENGTH_SHORT).show()
+                  })
+                  menuList.addView(makeMenuBtn("⚙️ Ayarlar") { showSettingsDialog() })
 
                   onlineMapManager.switchLayer(OnlineMapLayer.GOOGLE_HYBRID)
                   roadUpdateManager.renderRoadNetworkOnMap(mapView, graphBuilder.loadExistingGraph())
@@ -1907,6 +1995,10 @@ jobs:
 
                   gpsTracker = LiveGpsTracker(this) { loc ->
                       lastLocation = loc
+                      if (!hasCenteredOnce) {
+                          hasCenteredOnce = true
+                          mapView.controller.animateTo(OsmGeoPoint(loc.latitude, loc.longitude))
+                      }
                       val pt = GeoPoint(loc.latitude, loc.longitude)
                       orientationManager.onGpsUpdate(loc.bearing, loc.speed)
                       voiceNavigator.updatePosition(pt)
@@ -1917,8 +2009,77 @@ jobs:
                   requestPermissionsIfNeeded()
               }
 
-              private fun makeBtn(title: String, action: () -> Unit) = Button(this).apply {
-                  text = title; setOnClickListener { action() }
+              private fun makeCircleBtn(symbol: String, hexColor: String, action: () -> Unit): Button {
+                  return Button(this).apply {
+                      text = symbol
+                      textSize = 20f
+                      setTextColor(Color.WHITE)
+                      background = GradientDrawable().apply {
+                          shape = GradientDrawable.OVAL
+                          setColor(Color.parseColor(hexColor))
+                      }
+                      layoutParams = LinearLayout.LayoutParams(dp(50), dp(50)).apply {
+                          setMargins(0, dp(6), 0, dp(6))
+                      }
+                      setPadding(0, 0, 0, 0)
+                      setOnClickListener { action() }
+                  }
+              }
+
+              private fun makeMenuBtn(title: String, action: () -> Unit): Button {
+                  return Button(this).apply {
+                      text = title
+                      isAllCaps = false
+                      gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                      setTextColor(Color.WHITE)
+                      background = GradientDrawable().apply {
+                          setColor(Color.parseColor("#33FFFFFF"))
+                          cornerRadius = dp(8).toFloat()
+                      }
+                      layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                          setMargins(0, dp(4), 0, dp(4))
+                      }
+                      setPadding(dp(12), dp(10), dp(12), dp(10))
+                      setOnClickListener {
+                          menuPanel.visibility = View.GONE
+                          action()
+                      }
+                  }
+              }
+
+              private fun centerOnMyLocation() {
+                  if (!gpsTracker.isGpsEnabled()) {
+                      Toast.makeText(this, "GPS kapalı. Konum ayarları açılıyor...", Toast.LENGTH_LONG).show()
+                      startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                      return
+                  }
+                  myLocationOverlay.enableMyLocation()
+                  myLocationOverlay.enableFollowLocation()
+                  val loc = lastLocation ?: gpsTracker.getLastKnownLocation()
+                  if (loc != null) {
+                      mapView.controller.animateTo(OsmGeoPoint(loc.latitude, loc.longitude))
+                      mapView.controller.setZoom(16.5)
+                  } else {
+                      Toast.makeText(this, "GPS uydusu aranıyor, lütfen bekleyin...", Toast.LENGTH_SHORT).show()
+                  }
+              }
+
+              private fun startRoutingTo(target: GeoPoint) {
+                  val start = lastLocation?.let { GeoPoint(it.latitude, it.longitude) }
+                      ?: gpsTracker.getLastKnownLocation()?.let { GeoPoint(it.latitude, it.longitude) }
+                      ?: GeoPoint(mapView.mapCenter.latitude, mapView.mapCenter.longitude)
+                  Toast.makeText(this, "Rota hesaplanıyor...", Toast.LENGTH_SHORT).show()
+                  CoroutineScope(Dispatchers.Main).launch {
+                      val res = hybridPlanner.planRoute(graphBuilder.loadExistingGraph(), start, target)
+                      if (res != null) {
+                          routeOverlayManager.drawRoute(res)
+                          lastRemainingMeters = res.totalDistanceMeters
+                          voiceNavigator.startNavigation(res.pathPoints)
+                          Toast.makeText(this@MainActivity, "Rota hazır: %.2f km".format(res.totalDistanceMeters / 1000.0), Toast.LENGTH_LONG).show()
+                      } else {
+                          Toast.makeText(this@MainActivity, "Rota hesaplanamadı (Yol ağı veya internet kontrol edin).", Toast.LENGTH_LONG).show()
+                      }
+                  }
               }
 
               private fun showMapLayerDialog() {
@@ -1964,7 +2125,7 @@ jobs:
                   val cbNight = CheckBox(this).apply { text = "Gece Sürüş Harita Filtresi"; isChecked = fieldUiManager.nightModeMap }
                   val cbCross = CheckBox(this).apply { text = "Merkez Nişangahı (+) Göster"; isChecked = fieldUiManager.showCrosshair }
                   val tvVer = TextView(this).apply {
-                      text = "OrmanNav v1.0 | Geliştirici: Cihan Türkmen"
+                      text = "OrmanNav v1.1 | Geliştirici: Cihan Türkmen"
                       gravity = Gravity.CENTER; setPadding(0, 32, 0, 8)
                       setOnClickListener {
                           if (++settingsAdminClicks >= 5) {
@@ -2014,18 +2175,38 @@ jobs:
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) perms.add(Manifest.permission.POST_NOTIFICATIONS)
                   val missing = perms.filter { ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
                   if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), 101)
-                  else gpsTracker.startTracking()
+                  else {
+                      gpsTracker.startTracking()
+                      myLocationOverlay.enableMyLocation()
+                  }
               }
 
               override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
                   if (requestCode == 101 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                       gpsTracker.startTracking()
+                      myLocationOverlay.enableMyLocation()
                   }
               }
 
-              override fun onResume() { super.onResume(); mapView.onResume(); orientationManager.start(); hazardSyncManager.startNetworkMonitoring() }
-              override fun onPause() { super.onPause(); mapView.onPause(); orientationManager.stop(); hazardSyncManager.stopNetworkMonitoring() }
+              override fun onResume() {
+                  super.onResume()
+                  mapView.onResume()
+                  orientationManager.start()
+                  hazardSyncManager.startNetworkMonitoring()
+                  if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                      myLocationOverlay.enableMyLocation()
+                  }
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  mapView.onPause()
+                  orientationManager.stop()
+                  hazardSyncManager.stopNetworkMonitoring()
+                  myLocationOverlay.disableMyLocation()
+              }
+
               override fun onDestroy() { super.onDestroy(); gpsTracker.stopTracking(); voiceNavigator.shutdown() }
           }
           EOF
